@@ -37,7 +37,12 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem("qrcode-history")
     if (saved) {
       try {
-        setHistory(JSON.parse(saved))
+        const parsedHistory = JSON.parse(saved)
+        setHistory(parsedHistory)
+        if (parsedHistory.length > 0) {
+          setText(parsedHistory[0].content)
+          setIsConfirmed(true)
+        }
       } catch (e) {
         console.error("Failed to parse history", e)
       }
@@ -54,18 +59,16 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
     setIsConfirmed(true)
 
     setHistory((prev) => {
-      const latest = prev[0]
-      if (latest && latest.content === text) return prev
+      const filtered = prev.filter((item) => item.content !== text)
       return [
         { id: generateId(), content: text, timestamp: Date.now() },
-        ...prev
+        ...filtered
       ].slice(0, 50)
     })
   }, [text])
 
   const editInput = useCallback(() => {
     setIsConfirmed(false)
-    // Focus after state update
     setTimeout(() => inputRef.current?.focus(), 0)
   }, [])
 
@@ -75,7 +78,19 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const deleteHistory = useCallback((id: string) => {
-    setHistory((prev) => prev.filter((item) => item.id !== id))
+    setHistory((prev) => {
+      const newHistory = prev.filter((item) => item.id !== id)
+
+      if (newHistory.length > 0) {
+        setText(newHistory[0].content)
+        setIsConfirmed(true)
+      } else {
+        setText("")
+        setIsConfirmed(false)
+      }
+
+      return newHistory
+    })
   }, [])
 
   const value = {
