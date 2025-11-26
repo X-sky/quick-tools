@@ -1,7 +1,6 @@
 import { History, Trash } from "~icons"
 
 import { useQrCode } from "../context"
-import { formatDate } from "../utils"
 
 export function HistoryList() {
   const { history, isConfirmed, text, selectHistory, deleteHistory } =
@@ -25,23 +24,21 @@ export function HistoryList() {
             <div
               key={item.id}
               onClick={() => selectHistory(item)}
-              className={`plasmo-group plasmo-p-3 plasmo-rounded-xl plasmo-cursor-pointer plasmo-border plasmo-transition-all plasmo-duration-200 plasmo-flex plasmo-items-center plasmo-justify-between plasmo-gap-3
+              className={`plasmo-group plasmo-relative plasmo-p-3 plasmo-rounded-xl plasmo-cursor-pointer plasmo-border plasmo-transition-all plasmo-duration-200 plasmo-flex plasmo-items-center plasmo-gap-3
                 ${
                   isConfirmed && text === item.content
                     ? "plasmo-bg-white plasmo-border-rose-200 plasmo-shadow-sm plasmo-ring-1 plasmo-ring-rose-100"
                     : "plasmo-bg-white/50 plasmo-border-transparent hover:plasmo-bg-white hover:plasmo-shadow-sm hover:plasmo-border-stone-200"
                 }`}>
-              <div className="plasmo-flex-1 plasmo-min-w-0 plasmo-flex plasmo-flex-col plasmo-gap-0.5">
+              <div className="plasmo-flex-1 plasmo-min-w-0">
                 <div
+                  title={item.content}
                   className={`plasmo-text-sm plasmo-truncate plasmo-font-medium ${
                     isConfirmed && text === item.content
                       ? "plasmo-text-rose-600"
                       : "plasmo-text-stone-700"
                   }`}>
                   {item.content}
-                </div>
-                <div className="plasmo-text-[10px] plasmo-text-stone-400">
-                  {formatDate(item.timestamp)}
                 </div>
               </div>
 
@@ -50,7 +47,7 @@ export function HistoryList() {
                   e.stopPropagation()
                   deleteHistory(item.id)
                 }}
-                className="plasmo-opacity-0 group-hover:plasmo-opacity-100 plasmo-p-1.5 plasmo-text-stone-400 hover:plasmo-text-rose-500 hover:plasmo-bg-rose-50 plasmo-rounded-lg plasmo-transition-all">
+                className="plasmo-absolute plasmo-right-2 plasmo-top-1/2 -plasmo-translate-y-1/2 plasmo-opacity-0 group-hover:plasmo-opacity-100 plasmo-p-1.5 plasmo-text-stone-400 hover:plasmo-text-rose-500 hover:plasmo-bg-white/80 plasmo-backdrop-blur-sm plasmo-rounded-lg plasmo-transition-all">
                 <Trash className="plasmo-w-3.5 plasmo-h-3.5" />
               </button>
             </div>
