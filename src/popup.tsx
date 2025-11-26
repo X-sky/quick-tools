@@ -1,13 +1,9 @@
-import { CountButton } from "~features/count-button"
+import QrCodeGen from "~features/qr-code-gen"
 
 import "~style.css"
 
 function IndexPopup() {
-  return (
-    <div className="plasmo-flex plasmo-items-center plasmo-justify-center plasmo-h-16 plasmo-w-40">
-      <CountButton />
-    </div>
-  )
+  return <QrCodeGen />
 }
 
 export default IndexPopup
