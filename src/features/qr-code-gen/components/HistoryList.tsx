@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react"
 
-import { Copy, History, Plus, Tag, Trash, X } from "~icons"
+import {
+  CheckIcon,
+  CopyIcon,
+  HistoryIcon,
+  PlusIcon,
+  TagIcon,
+  TrashIcon,
+  XIcon
+} from "~icons"
 
 import { useQrCode } from "../context"
 
@@ -47,7 +55,7 @@ export function HistoryList() {
   return (
     <div className="plasmo-w-[400px] plasmo-flex plasmo-flex-col plasmo-bg-stone-50 plasmo-border-r plasmo-border-stone-100">
       <div className="plasmo-px-5 plasmo-py-3 plasmo-flex plasmo-items-center plasmo-gap-2 plasmo-text-stone-400 plasmo-text-xs plasmo-font-bold plasmo-uppercase plasmo-tracking-wider">
-        <History className="plasmo-w-3.5 plasmo-h-3.5" />
+        <HistoryIcon className="plasmo-w-3.5 plasmo-h-3.5" />
         History
       </div>
 
@@ -66,7 +74,7 @@ export function HistoryList() {
               onClick={() => setSelectedTag(tag)}
               className={`plasmo-px-2.5 plasmo-py-1 plasmo-text-xs plasmo-rounded-full plasmo-transition-all plasmo-duration-200 plasmo-font-medium plasmo-flex plasmo-items-center plasmo-gap-1 plasmo-whitespace-nowrap plasmo-flex-shrink-0
                 ${selectedTag === tag ? "plasmo-bg-rose-500 plasmo-text-white plasmo-shadow-sm" : "plasmo-bg-white plasmo-text-stone-500 hover:plasmo-bg-stone-100 plasmo-border plasmo-border-stone-200"}`}>
-              <Tag className="plasmo-w-3 plasmo-h-3" />
+              <TagIcon className="plasmo-w-3 plasmo-h-3" />
               {tag}
             </button>
           ))}
@@ -76,7 +84,7 @@ export function HistoryList() {
       <div className="plasmo-flex-1 plasmo-overflow-y-auto plasmo-p-3 plasmo-pt-0 plasmo-gap-2 plasmo-flex plasmo-flex-col plasmo-scrollbar-thin">
         {filteredHistory.length === 0 ? (
           <div className="plasmo-flex plasmo-flex-col plasmo-items-center plasmo-justify-center plasmo-h-full plasmo-text-stone-300 plasmo-gap-2">
-            <History className="plasmo-w-8 plasmo-h-8 plasmo-opacity-20" />
+            <HistoryIcon className="plasmo-w-8 plasmo-h-8 plasmo-opacity-20" />
             <span className="plasmo-text-sm">
               {selectedTag ? "No items with this tag" : "No history yet"}
             </span>
@@ -112,7 +120,7 @@ export function HistoryList() {
                   }}
                   title="Delete"
                   className="plasmo-p-1.5 plasmo-text-stone-400 hover:plasmo-text-rose-500 plasmo-bg-white/60 plasmo-backdrop-blur-md plasmo-rounded-lg plasmo-transition-all plasmo-shadow-sm">
-                  <Trash className="plasmo-w-3.5 plasmo-h-3.5" />
+                  <TrashIcon className="plasmo-w-3.5 plasmo-h-3.5" />
                 </button>
                 <button
                   onClick={(e) => {
@@ -121,13 +129,16 @@ export function HistoryList() {
                     setCopiedId(item.id)
                     setTimeout(() => setCopiedId(null), 1500)
                   }}
-                  title={item.content}
-                  className="plasmo-relative plasmo-p-1.5 plasmo-text-stone-400 hover:plasmo-text-blue-500 plasmo-bg-white/60 plasmo-backdrop-blur-md plasmo-rounded-lg plasmo-transition-all plasmo-shadow-sm">
-                  <Copy className="plasmo-w-3.5 plasmo-h-3.5" />
-                  {copiedId === item.id && (
-                    <span className="plasmo-absolute plasmo-right-full plasmo-mr-2 plasmo-top-1/2 -plasmo-translate-y-1/2 plasmo-text-xs plasmo-text-emerald-600 plasmo-font-medium plasmo-whitespace-nowrap plasmo-bg-white/80 plasmo-backdrop-blur-md plasmo-px-2 plasmo-py-0.5 plasmo-rounded-full plasmo-shadow-sm">
-                      Copied
-                    </span>
+                  title="Copy"
+                  className={`plasmo-p-1.5 plasmo-bg-white/60 plasmo-backdrop-blur-md plasmo-rounded-lg plasmo-transition-all plasmo-shadow-sm ${
+                    copiedId === item.id
+                      ? "plasmo-text-emerald-500"
+                      : "plasmo-text-stone-400 hover:plasmo-text-blue-500"
+                  }`}>
+                  {copiedId === item.id ? (
+                    <CheckIcon className="plasmo-w-3.5 plasmo-h-3.5" />
+                  ) : (
+                    <CopyIcon className="plasmo-w-3.5 plasmo-h-3.5" />
                   )}
                 </button>
               </div>
@@ -145,7 +156,7 @@ export function HistoryList() {
                         removeTagFromItem(item.id, tag)
                       }}
                       className="plasmo-text-stone-400 hover:plasmo-text-rose-500 plasmo-transition-colors">
-                      <X className="plasmo-w-3 plasmo-h-3" />
+                      <XIcon className="plasmo-w-3 plasmo-h-3" />
                     </button>
                   </span>
                 ))}
@@ -186,7 +197,7 @@ export function HistoryList() {
                     }}
                     className="plasmo-p-1 plasmo-text-stone-300 hover:plasmo-text-rose-500 plasmo-transition-colors plasmo-rounded-full hover:plasmo-bg-stone-100"
                     title="Add tag">
-                    <Plus className="plasmo-w-3.5 plasmo-h-3.5" />
+                    <PlusIcon className="plasmo-w-3.5 plasmo-h-3.5" />
                   </button>
                 )}
               </div>
