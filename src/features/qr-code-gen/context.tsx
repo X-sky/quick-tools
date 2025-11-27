@@ -17,11 +17,17 @@ interface QrCodeContextType {
   setText: (text: string) => void
   isConfirmed: boolean
   history: HistoryItem[]
+  allTags: string[]
+  selectedTag: string | null
+  filteredHistory: HistoryItem[]
   inputRef: RefObject<HTMLTextAreaElement>
   confirmInput: () => void
   editInput: () => void
   selectHistory: (item: HistoryItem) => void
   deleteHistory: (id: string) => void
+  addTagToItem: (id: string, tag: string) => void
+  removeTagFromItem: (id: string, tag: string) => void
+  setSelectedTag: (tag: string | null) => void
 }
 
 const QrCodeContext = createContext<QrCodeContextType | null>(null)
@@ -30,7 +36,18 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
   const [text, setText] = useState("")
   const [isConfirmed, setIsConfirmed] = useState(false)
   const [history, setHistory] = useState<HistoryItem[]>([])
+  const [selectedTag, setSelectedTag] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // 计算所有标签
+  const allTags = Array.from(
+    new Set(history.flatMap((item) => item.tags || []))
+  ).sort()
+
+  // 根据标签筛选历史记录
+  const filteredHistory = selectedTag
+    ? history.filter((item) => item.tags?.includes(selectedTag))
+    : history
 
   // Initialize from localStorage
   useEffect(() => {
@@ -93,16 +110,42 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const addTagToItem = useCallback((id: string, tag: string) => {
+    setHistory((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? { ...item, tags: [...new Set([...(item.tags || []), tag])] }
+          : item
+      )
+    )
+  }, [])
+
+  const removeTagFromItem = useCallback((id: string, tag: string) => {
+    setHistory((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? { ...item, tags: (item.tags || []).filter((t) => t !== tag) }
+          : item
+      )
+    )
+  }, [])
+
   const value = {
     text,
     setText,
     isConfirmed,
     history,
+    allTags,
+    selectedTag,
+    filteredHistory,
     inputRef,
     confirmInput,
     editInput,
     selectHistory,
-    deleteHistory
+    deleteHistory,
+    addTagToItem,
+    removeTagFromItem,
+    setSelectedTag
   }
 
   return (
