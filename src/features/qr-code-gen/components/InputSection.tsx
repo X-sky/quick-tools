@@ -1,4 +1,4 @@
-import { Check, Edit } from "~icons"
+import { CheckIcon, EditIcon } from "~icons"
 
 import { useQrCode } from "../context"
 
@@ -42,12 +42,12 @@ export function InputSection() {
             }`}>
           {isConfirmed ? (
             <>
-              <Edit className="plasmo-w-6 plasmo-h-6" />
+              <EditIcon className="plasmo-w-6 plasmo-h-6" />
               <span className="plasmo-text-xs plasmo-font-bold">Edit</span>
             </>
           ) : (
             <>
-              <Check className="plasmo-w-6 plasmo-h-6" />
+              <CheckIcon className="plasmo-w-6 plasmo-h-6" />
               <span className="plasmo-text-xs plasmo-font-bold">Generate</span>
             </>
           )}

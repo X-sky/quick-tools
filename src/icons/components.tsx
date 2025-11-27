@@ -1,6 +1,6 @@
 import type { ComponentProps } from "react"
 
-export const Check = ({ className, ...props }: ComponentProps<"svg">) => (
+export const CheckIcon = ({ className, ...props }: ComponentProps<"svg">) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 24 24"
@@ -15,7 +15,7 @@ export const Check = ({ className, ...props }: ComponentProps<"svg">) => (
   </svg>
 )
 
-export const Edit = ({ className, ...props }: ComponentProps<"svg">) => (
+export const EditIcon = ({ className, ...props }: ComponentProps<"svg">) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 24 24"
@@ -30,7 +30,7 @@ export const Edit = ({ className, ...props }: ComponentProps<"svg">) => (
   </svg>
 )
 
-export const History = ({ className, ...props }: ComponentProps<"svg">) => (
+export const HistoryIcon = ({ className, ...props }: ComponentProps<"svg">) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 24 24"
@@ -47,7 +47,7 @@ export const History = ({ className, ...props }: ComponentProps<"svg">) => (
   </svg>
 )
 
-export const Trash = ({ className, ...props }: ComponentProps<"svg">) => (
+export const TrashIcon = ({ className, ...props }: ComponentProps<"svg">) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 24 24"
@@ -64,7 +64,7 @@ export const Trash = ({ className, ...props }: ComponentProps<"svg">) => (
   </svg>
 )
 
-export const Plus = ({ className, ...props }: ComponentProps<"svg">) => (
+export const PlusIcon = ({ className, ...props }: ComponentProps<"svg">) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 24 24"
@@ -80,7 +80,7 @@ export const Plus = ({ className, ...props }: ComponentProps<"svg">) => (
   </svg>
 )
 
-export const Tag = ({ className, ...props }: ComponentProps<"svg">) => (
+export const TagIcon = ({ className, ...props }: ComponentProps<"svg">) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 24 24"
@@ -96,7 +96,7 @@ export const Tag = ({ className, ...props }: ComponentProps<"svg">) => (
   </svg>
 )
 
-export const X = ({ className, ...props }: ComponentProps<"svg">) => (
+export const XIcon = ({ className, ...props }: ComponentProps<"svg">) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 24 24"
@@ -112,7 +112,7 @@ export const X = ({ className, ...props }: ComponentProps<"svg">) => (
   </svg>
 )
 
-export const Copy = ({ className, ...props }: ComponentProps<"svg">) => (
+export const CopyIcon = ({ className, ...props }: ComponentProps<"svg">) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 24 24"
