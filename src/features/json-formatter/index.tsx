@@ -1,5 +1,4 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
-import { json } from "@codemirror/lang-json"
 import { foldKeymap } from "@codemirror/language"
 import { EditorView, keymap } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
@@ -42,9 +41,121 @@ export const JsonFormatter = () => {
     }
   }, [])
 
+  /**
+   * 将JavaScript对象字面量转换为JSON格式
+   * 支持单引号、不带引号的属性名等JS对象语法
+   * 使用字符串替换方式，避免使用eval/Function以符合CSP策略
+   */
+  const parseJsObjectToJson = (text: string): any => {
+    try {
+      // 先尝试标准的JSON.parse
+      return JSON.parse(text)
+    } catch {
+      // 如果失败，尝试将JS对象字面量转换为JSON格式
+      try {
+        let converted = text.trim()
+
+        // 1. 移除单行注释 (// ...)
+        converted = converted.replace(/\/\/.*$/gm, "")
+
+        // 2. 移除多行注释 (/* ... */)
+        converted = converted.replace(/\/\*[\s\S]*?\*\//g, "")
+
+        // 3. 处理字符串：先提取所有字符串（单引号和双引号），用占位符替换
+        const stringPlaceholders: string[] = []
+
+        // 更准确的字符串匹配：处理转义字符
+        const stringRegex = /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g
+        converted = converted.replace(stringRegex, (match) => {
+          const placeholder = `__STR_${stringPlaceholders.length}__`
+          stringPlaceholders.push(match)
+          return placeholder
+        })
+
+        // 4. 将单引号字符串转换为双引号格式
+        for (let i = 0; i < stringPlaceholders.length; i++) {
+          const str = stringPlaceholders[i]
+          if (str.startsWith("'")) {
+            // 单引号字符串：提取内容，转义双引号和反斜杠，然后用双引号包裹
+            const content = str.slice(1, -1)
+            // 处理转义：先转义反斜杠，再转义双引号
+            const escaped = content
+              .replace(/\\/g, "\\\\")
+              .replace(/"/g, '\\"')
+              .replace(/\n/g, "\\n")
+              .replace(/\r/g, "\\r")
+              .replace(/\t/g, "\\t")
+            stringPlaceholders[i] = `"${escaped}"`
+          }
+          // 双引号字符串保持不变
+        }
+
+        // 5. 处理不带引号的属性名（对象键）
+        // 使用更精确的正则表达式：匹配对象属性名 pattern
+        // 匹配：{key: 或 ,key: 或 { key: 或 , key: 或换行后的 key:
+        converted = converted.replace(
+          /([{,]\s*|^\s*|\n\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g,
+          (match, prefix, key) => {
+            // 确保不是占位符
+            if (key.startsWith("__STR_") && key.endsWith("__")) {
+              return match
+            }
+            // 检查前缀，确保是在对象上下文中
+            const trimmedPrefix = prefix.trim()
+            if (
+              trimmedPrefix === "" ||
+              trimmedPrefix === "," ||
+              trimmedPrefix === "{" ||
+              trimmedPrefix === "\n" ||
+              /^\s*$/.test(trimmedPrefix)
+            ) {
+              return `${prefix}"${key}":`
+            }
+            return match
+          }
+        )
+
+        // 6. 移除尾随逗号（在对象或数组的最后一个元素后）
+        converted = converted.replace(/,(\s*[}\]])/g, "$1")
+
+        // 7. 恢复字符串占位符（倒序恢复，避免占位符文本被误替换）
+        for (let i = stringPlaceholders.length - 1; i >= 0; i--) {
+          const placeholder = `__STR_${i}__`
+          // 使用全局替换，转义特殊字符
+          const escapedPlaceholder = placeholder.replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&"
+          )
+          converted = converted.replace(
+            new RegExp(escapedPlaceholder, "g"),
+            stringPlaceholders[i]
+          )
+        }
+
+        // 8. 清理多余的空白行
+        converted = converted.replace(/\n\s*\n/g, "\n").trim()
+
+        // 9. 尝试解析转换后的JSON
+        const parsed = JSON.parse(converted)
+
+        // 验证解析结果是对象或数组
+        if (typeof parsed === "object" && parsed !== null) {
+          return parsed
+        }
+        throw new Error("解析结果不是有效的对象或数组")
+      } catch (e) {
+        throw new Error(
+          e instanceof Error
+            ? `无法解析为JSON或JS对象: ${e.message}`
+            : "无法解析为JSON或JS对象"
+        )
+      }
+    }
+  }
+
   const handleFormat = () => {
     try {
-      const parsed = JSON.parse(jsonText)
+      const parsed = parseJsObjectToJson(jsonText)
       const formatted = JSON.stringify(parsed, null, 2)
       setJsonText(formatted)
       setError(null)
@@ -55,7 +166,7 @@ export const JsonFormatter = () => {
 
   const handleMinify = () => {
     try {
-      const parsed = JSON.parse(jsonText)
+      const parsed = parseJsObjectToJson(jsonText)
       const minified = JSON.stringify(parsed, null, 0)
       setJsonText(minified)
       setError(null)
@@ -159,11 +270,12 @@ export const JsonFormatter = () => {
     }
   })
 
+  // 不使用任何语言模式，使用纯文本编辑器，避免语言检测干扰
+  // format功能会直接处理编辑器内的字符串，支持JavaScript对象字面量语法
   const extensions = [
-    json(),
     history(),
     EditorView.lineWrapping,
-    keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap]),
+    keymap.of([...defaultKeymap, ...historyKeymap]),
     lightTheme
   ]
 
