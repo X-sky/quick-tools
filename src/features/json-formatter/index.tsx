@@ -1,4 +1,5 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
+import { json } from "@codemirror/lang-json"
 import { foldKeymap } from "@codemirror/language"
 import { EditorView, keymap } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
@@ -13,6 +14,9 @@ export const JsonFormatter = () => {
   const [error, setError] = useState<string | null>(null)
   const editorContainerRef = useRef<HTMLDivElement>(null)
   const [editorHeight, setEditorHeight] = useState<number>(600)
+  // 默认禁用 JSON 模式，允许用户输入 JavaScript 对象字面量等非标准格式
+  // 只有在成功格式化后才启用 JSON 语言支持
+  const [enableJsonMode, setEnableJsonMode] = useState<boolean>(false)
 
   useEffect(() => {
     const updateHeight = () => {
@@ -159,6 +163,8 @@ export const JsonFormatter = () => {
       const formatted = JSON.stringify(parsed, null, 2)
       setJsonText(formatted)
       setError(null)
+      // 格式化成功后启用 JSON 语言支持
+      setEnableJsonMode(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Invalid JSON")
     }
@@ -170,6 +176,8 @@ export const JsonFormatter = () => {
       const minified = JSON.stringify(parsed, null, 0)
       setJsonText(minified)
       setError(null)
+      // 压缩成功后启用 JSON 语言支持
+      setEnableJsonMode(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Invalid JSON")
     }
@@ -188,11 +196,17 @@ export const JsonFormatter = () => {
   const handleClear = () => {
     setJsonText("")
     setError(null)
+    // 清空内容时禁用 JSON 模式
+    setEnableJsonMode(false)
   }
 
   const handleChange = (value: string) => {
     setJsonText(value)
     setError(null)
+    // 用户修改内容时禁用 JSON 模式，避免 JS 对象字面量语法报错
+    if (enableJsonMode) {
+      setEnableJsonMode(false)
+    }
   }
 
   const lightTheme = EditorView.theme({
@@ -270,12 +284,14 @@ export const JsonFormatter = () => {
     }
   })
 
-  // 不使用任何语言模式，使用纯文本编辑器，避免语言检测干扰
+  // 动态添加 JSON 语言支持
+  // 只在格式化后启用 JSON 模式，避免在输入 JavaScript 对象字面量时报语法错误
   // format功能会直接处理编辑器内的字符串，支持JavaScript对象字面量语法
   const extensions = [
+    ...(enableJsonMode ? [json()] : []),
     history(),
     EditorView.lineWrapping,
-    keymap.of([...defaultKeymap, ...historyKeymap]),
+    keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap]),
     lightTheme
   ]
 
