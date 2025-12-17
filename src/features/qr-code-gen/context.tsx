@@ -28,6 +28,7 @@ interface QrCodeContextType {
   addTagToItem: (id: string, tag: string) => void
   removeTagFromItem: (id: string, tag: string) => void
   setSelectedTag: (tag: string | null) => void
+  currentEditingItem: HistoryItem | null
 }
 
 const QrCodeContext = createContext<QrCodeContextType | null>(null)
@@ -37,6 +38,8 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
   const [isConfirmed, setIsConfirmed] = useState(false)
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
+  const [currentEditingItem, setCurrentEditingItem] =
+    useState<HistoryItem | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   // 计算所有标签
@@ -59,6 +62,7 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
         if (parsedHistory.length > 0) {
           setText(parsedHistory[0].content)
           setIsConfirmed(true)
+          setCurrentEditingItem(parsedHistory[0])
         }
       } catch (e) {
         console.error("Failed to parse history", e)
@@ -77,12 +81,22 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
 
     setHistory((prev) => {
       const filtered = prev.filter((item) => item.content !== text)
+      // 如果是从历史记录中选择后修改的，保留原有的tags
+      const tagsToKeep = currentEditingItem?.tags || []
       return [
-        { id: generateId(), content: text, timestamp: Date.now() },
+        {
+          id: generateId(),
+          content: text,
+          timestamp: Date.now(),
+          tags: tagsToKeep
+        },
         ...filtered
       ].slice(0, 50)
     })
-  }, [text])
+
+    // 保存后清除当前编辑项引用
+    setCurrentEditingItem(null)
+  }, [text, currentEditingItem])
 
   const editInput = useCallback(() => {
     setIsConfirmed(false)
@@ -92,23 +106,36 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
   const selectHistory = useCallback((item: HistoryItem) => {
     setText(item.content)
     setIsConfirmed(true)
+    // 记录当前选择的项，以便后续修改时保留其tags
+    setCurrentEditingItem(item)
   }, [])
 
-  const deleteHistory = useCallback((id: string) => {
-    setHistory((prev) => {
-      const newHistory = prev.filter((item) => item.id !== id)
+  const deleteHistory = useCallback(
+    (id: string) => {
+      setHistory((prev) => {
+        const newHistory = prev.filter((item) => item.id !== id)
 
-      if (newHistory.length > 0) {
-        setText(newHistory[0].content)
-        setIsConfirmed(true)
-      } else {
-        setText("")
-        setIsConfirmed(false)
+        if (newHistory.length > 0) {
+          setText(newHistory[0].content)
+          setIsConfirmed(true)
+          // 删除后，将第一项设置为当前编辑项
+          setCurrentEditingItem(newHistory[0])
+        } else {
+          setText("")
+          setIsConfirmed(false)
+          setCurrentEditingItem(null)
+        }
+
+        return newHistory
+      })
+
+      // 如果删除的是当前正在编辑的项，清除引用
+      if (currentEditingItem?.id === id) {
+        setCurrentEditingItem(null)
       }
-
-      return newHistory
-    })
-  }, [])
+    },
+    [currentEditingItem]
+  )
 
   const addTagToItem = useCallback((id: string, tag: string) => {
     setHistory((prev) =>
@@ -145,7 +172,8 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
     deleteHistory,
     addTagToItem,
     removeTagFromItem,
-    setSelectedTag
+    setSelectedTag,
+    currentEditingItem
   }
 
   return (
