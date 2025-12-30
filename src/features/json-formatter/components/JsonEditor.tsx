@@ -174,6 +174,19 @@ const parseJsObjectToJson = (text: string): any => {
   }
 }
 
+const sortJsonByKey = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => sortJsonByKey(item))
+  }
+  if (value && typeof value === "object") {
+    const sortedEntries = Object.entries(value as Record<string, unknown>)
+      .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
+      .map(([key, val]) => [key, sortJsonByKey(val)])
+    return Object.fromEntries(sortedEntries)
+  }
+  return value
+}
+
 interface JsonEditorProps {
   value: string
   onChange: (value: string) => void
@@ -253,6 +266,20 @@ export const JsonEditor = React.forwardRef<
       const parsed = parseJsObjectToJson(value)
       const minified = JSON.stringify(parsed, null, 0)
       onChange(minified)
+      setError(null)
+      setEnableJsonMode(true)
+      clearDiff()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Invalid JSON")
+    }
+  }
+
+  const handleSort = () => {
+    try {
+      const parsed = parseJsObjectToJson(value)
+      const sorted = sortJsonByKey(parsed)
+      const formatted = JSON.stringify(sorted, null, 2)
+      onChange(formatted)
       setError(null)
       setEnableJsonMode(true)
       clearDiff()
@@ -439,6 +466,11 @@ export const JsonEditor = React.forwardRef<
               onClick={handleFormat}
               className="plasmo-px-3 plasmo-py-1.5 plasmo-bg-[#FF5A5F] plasmo-text-white plasmo-rounded-lg hover:plasmo-bg-[#FF6B70] plasmo-transition-all plasmo-text-xs plasmo-font-medium plasmo-shadow-sm hover:plasmo-shadow-md">
               Format
+            </button>
+            <button
+              onClick={handleSort}
+              className="plasmo-px-3 plasmo-py-1.5 plasmo-bg-white plasmo-text-gray-700 plasmo-border plasmo-border-gray-300 plasmo-rounded-lg hover:plasmo-bg-gray-50 hover:plasmo-border-gray-400 plasmo-transition-all plasmo-text-xs plasmo-font-medium plasmo-shadow-sm hover:plasmo-shadow-md">
+              Sort
             </button>
             <button
               onClick={handleMinify}
