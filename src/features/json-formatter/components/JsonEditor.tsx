@@ -4,7 +4,7 @@ import { foldKeymap } from "@codemirror/language"
 import { StateEffect, StateField } from "@codemirror/state"
 import { Decoration, EditorView, keymap } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
-import React, { useEffect, useRef, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 
 import { CopyIcon, TrashIcon } from "~icons"
 
@@ -298,108 +298,124 @@ export const JsonEditor = React.forwardRef<
     }
   }
 
-  const lightTheme = EditorView.theme({
-    "&": {
-      height: "100%",
-      backgroundColor: "#ffffff",
-      color: "#222222",
-      display: "flex",
-      flexDirection: "column"
-    },
-    ".cm-editor": {
-      height: "100%",
-      display: "flex",
-      flexDirection: "column",
-      flex: "1 1 auto",
-      minHeight: "0"
-    },
-    ".cm-scroller": {
-      flex: "1 1 auto",
-      overflow: "auto",
-      minHeight: "0",
-      maxHeight: "100%"
-    },
-    ".cm-scroller::-webkit-scrollbar": {
-      width: "8px",
-      height: "8px"
-    },
-    ".cm-scroller::-webkit-scrollbar-track": {
-      background: "#f7f7f7",
-      borderRadius: "4px"
-    },
-    ".cm-scroller::-webkit-scrollbar-thumb": {
-      background: "#d1d1d1",
-      borderRadius: "4px"
-    },
-    ".cm-scroller::-webkit-scrollbar-thumb:hover": {
-      background: "#b1b1b1"
-    },
-    ".cm-content": {
-      padding: "20px",
-      fontSize: "14px",
-      lineHeight: "1.6"
-    },
-    ".cm-focused": {
-      outline: "none"
-    },
-    ".cm-gutters": {
-      backgroundColor: "#f7f7f7",
-      border: "none",
-      color: "#717171"
-    },
-    ".cm-lineNumbers": {
-      color: "#717171",
-      fontSize: "13px"
-    },
-    ".cm-foldGutter": {
-      width: "28px",
-      backgroundColor: "#f7f7f7"
-    },
-    ".cm-foldGutter .cm-gutterElement": {
-      cursor: "pointer",
-      transition: "background-color 0.2s ease"
-    },
-    ".cm-foldGutter .cm-gutterElement:hover": {
-      backgroundColor: "#e8e8e8"
-    },
-    ".cm-activeLine": {
-      backgroundColor: "#f7f7f7"
-    },
-    ".cm-activeLineGutter": {
-      backgroundColor: "#f7f7f7"
-    },
-    ".cm-selectionBackground": {
-      backgroundColor: "#e8f0fe"
-    },
-    // 差异行样式
-    ".diff-line.diff-added": {
-      backgroundColor: "#d4edda !important"
-    },
-    ".diff-line.diff-removed": {
-      backgroundColor: "#f8d7da !important"
-    },
-    ".diff-line.diff-modified": {
-      backgroundColor: "#fff3cd !important"
-    },
-    ".diff-line.diff-added .cm-line": {
-      backgroundColor: "#d4edda"
-    },
-    ".diff-line.diff-removed .cm-line": {
-      backgroundColor: "#f8d7da"
-    },
-    ".diff-line.diff-modified .cm-line": {
-      backgroundColor: "#fff3cd"
-    }
-  })
+  const diffFieldExtension = useMemo(() => createDiffField(), [])
+  const lightTheme = useMemo(
+    () =>
+      EditorView.theme({
+        "&": {
+          height: "100%",
+          backgroundColor: "#ffffff",
+          color: "#222222",
+          display: "flex",
+          flexDirection: "column"
+        },
+        ".cm-editor": {
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          flex: "1 1 auto",
+          minHeight: "0"
+        },
+        ".cm-scroller": {
+          flex: "1 1 auto",
+          overflow: "auto",
+          minHeight: "0",
+          maxHeight: "100%"
+        },
+        ".cm-scroller::-webkit-scrollbar": {
+          width: "8px",
+          height: "8px"
+        },
+        ".cm-scroller::-webkit-scrollbar-track": {
+          background: "#f7f7f7",
+          borderRadius: "4px"
+        },
+        ".cm-scroller::-webkit-scrollbar-thumb": {
+          background: "#d1d1d1",
+          borderRadius: "4px"
+        },
+        ".cm-scroller::-webkit-scrollbar-thumb:hover": {
+          background: "#b1b1b1"
+        },
+        ".cm-content": {
+          padding: "20px",
+          fontSize: "14px",
+          lineHeight: "1.6"
+        },
+        ".cm-focused": {
+          outline: "none"
+        },
+        ".cm-gutters": {
+          backgroundColor: "#f7f7f7",
+          border: "none",
+          color: "#717171"
+        },
+        ".cm-lineNumbers": {
+          color: "#717171",
+          fontSize: "13px"
+        },
+        ".cm-foldGutter": {
+          width: "28px",
+          backgroundColor: "#f7f7f7"
+        },
+        ".cm-foldGutter .cm-gutterElement": {
+          cursor: "pointer",
+          transition: "background-color 0.2s ease"
+        },
+        ".cm-foldGutter .cm-gutterElement:hover": {
+          backgroundColor: "#e8e8e8"
+        },
+        ".cm-activeLine": {
+          backgroundColor: "#f7f7f7"
+        },
+        ".cm-activeLineGutter": {
+          backgroundColor: "#f7f7f7"
+        },
+        ".cm-selectionBackground": {
+          backgroundColor: "#e8f0fe"
+        },
+        // 差异行样式
+        ".diff-line.diff-added": {
+          backgroundColor: "#d4edda !important"
+        },
+        ".diff-line.diff-removed": {
+          backgroundColor: "#f8d7da !important"
+        },
+        ".diff-line.diff-modified": {
+          backgroundColor: "#fff3cd !important"
+        },
+        ".diff-line.diff-added .cm-line": {
+          backgroundColor: "#d4edda"
+        },
+        ".diff-line.diff-removed .cm-line": {
+          backgroundColor: "#f8d7da"
+        },
+        ".diff-line.diff-modified .cm-line": {
+          backgroundColor: "#fff3cd"
+        }
+      }),
+    []
+  )
 
-  const extensions = [
-    ...(enableJsonMode ? [json()] : []),
-    history(),
-    EditorView.lineWrapping,
-    keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap]),
-    lightTheme,
-    createDiffField()
-  ]
+  const baseExtensions = useMemo(() => {
+    const historyExtension = history()
+    const keymapExtension = keymap.of([
+      ...defaultKeymap,
+      ...historyKeymap,
+      ...foldKeymap
+    ])
+    return [historyExtension, EditorView.lineWrapping, keymapExtension]
+  }, [])
+
+  const extensions = useMemo(
+    () => [
+      ...(enableJsonMode ? [json()] : []),
+      ...baseExtensions,
+      lightTheme,
+      diffFieldExtension
+    ],
+    [enableJsonMode, baseExtensions, lightTheme, diffFieldExtension]
+  )
 
   return (
     <div className="plasmo-flex-1 plasmo-min-h-0 plasmo-flex plasmo-flex-col">
