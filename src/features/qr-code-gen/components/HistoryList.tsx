@@ -29,6 +29,7 @@ export function HistoryList() {
   const [editingTagId, setEditingTagId] = useState<string | null>(null)
   const [newTag, setNewTag] = useState("")
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const tagInputRef = useRef<HTMLInputElement>(null)
 
   // 切换标签时聚焦首项
@@ -112,36 +113,61 @@ export function HistoryList() {
                 </div>
               </div>
 
-              <div className="plasmo-absolute plasmo-right-3 plasmo-top-2 plasmo-flex plasmo-flex-col plasmo-gap-1 plasmo-opacity-0 group-hover:plasmo-opacity-100 plasmo-transition-all">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    deleteHistory(item.id)
-                  }}
-                  title="Delete"
-                  className="plasmo-p-1.5 plasmo-text-stone-400 hover:plasmo-text-rose-500 plasmo-bg-white/60 plasmo-backdrop-blur-md plasmo-rounded-lg plasmo-transition-all plasmo-shadow-sm">
-                  <TrashIcon className="plasmo-w-3.5 plasmo-h-3.5" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    navigator.clipboard.writeText(item.content)
-                    setCopiedId(item.id)
-                    setTimeout(() => setCopiedId(null), 1500)
-                  }}
-                  title="Copy"
-                  className={`plasmo-p-1.5 plasmo-bg-white/60 plasmo-backdrop-blur-md plasmo-rounded-lg plasmo-transition-all plasmo-shadow-sm ${
-                    copiedId === item.id
-                      ? "plasmo-text-emerald-500"
-                      : "plasmo-text-stone-400 hover:plasmo-text-blue-500"
-                  }`}>
-                  {copiedId === item.id ? (
-                    <CheckIcon className="plasmo-w-3.5 plasmo-h-3.5" />
-                  ) : (
-                    <CopyIcon className="plasmo-w-3.5 plasmo-h-3.5" />
-                  )}
-                </button>
-              </div>
+              {deletingId === item.id ? (
+                <div className="plasmo-absolute plasmo-right-3 plasmo-top-2 plasmo-flex plasmo-items-center plasmo-gap-1.5 plasmo-bg-white plasmo-rounded-lg plasmo-shadow-lg plasmo-p-2 plasmo-border plasmo-border-rose-200">
+                  <span className="plasmo-text-xs plasmo-text-stone-600 plasmo-font-medium plasmo-whitespace-nowrap">
+                    Delete?
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteHistory(item.id)
+                      setDeletingId(null)
+                    }}
+                    className="plasmo-px-2 plasmo-py-1 plasmo-text-xs plasmo-font-medium plasmo-bg-rose-500 plasmo-text-white plasmo-rounded plasmo-transition-all hover:plasmo-bg-rose-600">
+                    Yes
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDeletingId(null)
+                    }}
+                    className="plasmo-px-2 plasmo-py-1 plasmo-text-xs plasmo-font-medium plasmo-bg-stone-100 plasmo-text-stone-600 plasmo-rounded plasmo-transition-all hover:plasmo-bg-stone-200">
+                    No
+                  </button>
+                </div>
+              ) : (
+                <div className="plasmo-absolute plasmo-right-3 plasmo-top-2 plasmo-flex plasmo-flex-col plasmo-gap-1 plasmo-opacity-0 group-hover:plasmo-opacity-100 plasmo-transition-all">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDeletingId(item.id)
+                    }}
+                    title="Delete"
+                    className="plasmo-p-1.5 plasmo-text-stone-400 hover:plasmo-text-rose-500 plasmo-bg-white/60 plasmo-backdrop-blur-md plasmo-rounded-lg plasmo-transition-all plasmo-shadow-sm">
+                    <TrashIcon className="plasmo-w-3.5 plasmo-h-3.5" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigator.clipboard.writeText(item.content)
+                      setCopiedId(item.id)
+                      setTimeout(() => setCopiedId(null), 1500)
+                    }}
+                    title="Copy"
+                    className={`plasmo-p-1.5 plasmo-bg-white/60 plasmo-backdrop-blur-md plasmo-rounded-lg plasmo-transition-all plasmo-shadow-sm ${
+                      copiedId === item.id
+                        ? "plasmo-text-emerald-500"
+                        : "plasmo-text-stone-400 hover:plasmo-text-blue-500"
+                    }`}>
+                    {copiedId === item.id ? (
+                      <CheckIcon className="plasmo-w-3.5 plasmo-h-3.5" />
+                    ) : (
+                      <CopyIcon className="plasmo-w-3.5 plasmo-h-3.5" />
+                    )}
+                  </button>
+                </div>
+              )}
 
               {/* 标签展示与添加区 */}
               <div className="plasmo-mt-2 plasmo-flex plasmo-flex-wrap plasmo-items-center plasmo-gap-1.5">
