@@ -199,7 +199,8 @@ chrome.runtime.onMessage.addListener(
 
         await setExportStatus(
           "success",
-          `${message.format.toUpperCase()} 已开始下载。`,
+          message.summaryMessage ||
+            `${message.format.toUpperCase()} 已开始下载。`,
           message.format,
           message.title
         )

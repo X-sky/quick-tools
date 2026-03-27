@@ -8,7 +8,13 @@ import {
   isExtensionContextInvalid
 } from "~features/web-export/extension-runtime"
 import { ExportDocument } from "~features/web-export/render/ExportDocument"
-import type { BackgroundMessage, ExportTask } from "~features/web-export/types"
+import type {
+  BackgroundMessage,
+  ExportFormat,
+  ExportMetrics,
+  ExportStrategy,
+  ExportTask
+} from "~features/web-export/types"
 import { buildDownloadFilename } from "~features/web-export/utils"
 
 import "~style.css"
@@ -16,6 +22,108 @@ import "~style.css"
 const PNG_PIXEL_RATIO = 3
 const PDF_PAGE_PIXEL_RATIO = 2
 const MAX_MERGED_CANVAS_DIMENSION = 16384
+const MAX_MERGED_RGBA_BYTES = 200 * 1024 * 1024
+const SUPER_LONG_PAGE_THRESHOLD = 12
+const PAGE_WIDTH_PT = 595.28
+const PAGE_HEIGHT_PT = 841.89
+
+function getContentMetrics(element: HTMLElement): ExportMetrics {
+  const contentWidth = Math.ceil(element.scrollWidth)
+  const contentHeight = Math.ceil(element.scrollHeight)
+  const pageCssHeight = Math.floor(
+    (contentWidth * PAGE_HEIGHT_PT) / PAGE_WIDTH_PT
+  )
+  const totalPages = Math.max(1, Math.ceil(contentHeight / pageCssHeight))
+  const mergedWidth = Math.ceil(contentWidth * PNG_PIXEL_RATIO)
+  const mergedHeight = Math.ceil(contentHeight * PNG_PIXEL_RATIO)
+  const mergedBytes = mergedWidth * mergedHeight * 4
+
+  return {
+    contentWidth,
+    contentHeight,
+    pageCssHeight,
+    totalPages,
+    mergedWidth,
+    mergedHeight,
+    mergedBytes
+  }
+}
+
+function getExportStrategy(metrics: ExportMetrics): ExportStrategy {
+  if (metrics.contentHeight <= metrics.pageCssHeight) {
+    return {
+      sizeTier: "short",
+      recommendedFormat: "png",
+      pngMode: "single",
+      reason: ["内容高度在单页内，适合直接导出单张 PNG。"],
+      summary: "SHORT · 单张 PNG"
+    }
+  }
+
+  const canMerge =
+    metrics.mergedWidth <= MAX_MERGED_CANVAS_DIMENSION &&
+    metrics.mergedHeight <= MAX_MERGED_CANVAS_DIMENSION &&
+    metrics.mergedBytes <= MAX_MERGED_RGBA_BYTES &&
+    metrics.totalPages <= SUPER_LONG_PAGE_THRESHOLD
+
+  if (canMerge) {
+    return {
+      sizeTier: "medium",
+      recommendedFormat: "png",
+      pngMode: "merge",
+      reason: ["内容需要分页渲染，但仍可在安全尺寸内合并为单张 PNG。"],
+      summary: "MEDIUM · 合并单张 PNG"
+    }
+  }
+
+  const reason = []
+
+  if (metrics.totalPages > SUPER_LONG_PAGE_THRESHOLD) {
+    reason.push(`分页数达到 ${metrics.totalPages} 页，已视为超长内容。`)
+  }
+
+  if (metrics.mergedWidth > MAX_MERGED_CANVAS_DIMENSION) {
+    reason.push("合并后的 PNG 宽度将超过浏览器安全尺寸。")
+  }
+
+  if (metrics.mergedHeight > MAX_MERGED_CANVAS_DIMENSION) {
+    reason.push("合并后的 PNG 高度将超过浏览器安全尺寸。")
+  }
+
+  if (metrics.mergedBytes > MAX_MERGED_RGBA_BYTES) {
+    reason.push("合并后的位图内存开销过高。")
+  }
+
+  return {
+    sizeTier: "super_long",
+    recommendedFormat: "pdf",
+    pngMode: "confirm",
+    reason,
+    summary: "SUPER_LONG · 推荐 PDF"
+  }
+}
+
+function describeStrategy(
+  format: Exclude<ExportFormat, "markdown">,
+  strategy: ExportStrategy,
+  modeOverride?: "single" | "merge" | "paged" | "pdf"
+) {
+  const mode = modeOverride || (format === "pdf" ? "pdf" : strategy.pngMode)
+
+  if (format === "pdf" || mode === "pdf") {
+    return `${strategy.sizeTier.toUpperCase()} · 分页导出 PDF`
+  }
+
+  if (mode === "single") {
+    return `${strategy.sizeTier.toUpperCase()} · 单张 PNG`
+  }
+
+  if (mode === "merge") {
+    return `${strategy.sizeTier.toUpperCase()} · 已合并为单张 PNG`
+  }
+
+  return `${strategy.sizeTier.toUpperCase()} · 已分页导出 PNG`
+}
 
 function buildPageFilename(base: string, index: number, total: number) {
   return total > 1
@@ -107,15 +215,6 @@ async function downloadObjectUrl(url: string, filename: string) {
   return downloadId
 }
 
-function canMergeToSinglePng(element: HTMLElement) {
-  return (
-    Math.ceil(element.scrollWidth * PNG_PIXEL_RATIO) <=
-      MAX_MERGED_CANVAS_DIMENSION &&
-    Math.ceil(element.scrollHeight * PNG_PIXEL_RATIO) <=
-      MAX_MERGED_CANVAS_DIMENSION
-  )
-}
-
 async function withPagedCanvases(
   element: HTMLElement,
   pixelRatio: number,
@@ -127,11 +226,11 @@ async function withPagedCanvases(
     cssHeight: number
   }) => Promise<void>
 ) {
-  const pageWidthPt = 595.28
-  const pageHeightPt = 841.89
   const contentWidth = Math.ceil(element.scrollWidth)
   const contentHeight = Math.ceil(element.scrollHeight)
-  const pageCssHeight = Math.floor((contentWidth * pageHeightPt) / pageWidthPt)
+  const pageCssHeight = Math.floor(
+    (contentWidth * PAGE_HEIGHT_PT) / PAGE_WIDTH_PT
+  )
   const totalPages = Math.max(1, Math.ceil(contentHeight / pageCssHeight))
   const stagingRoot = document.createElement("div")
 
@@ -272,6 +371,15 @@ async function buildMergedPngObjectUrl(element: HTMLElement) {
 function ExportRendererTab() {
   const [task, setTask] = useState<ExportTask | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [strategy, setStrategy] = useState<ExportStrategy | null>(null)
+  const [metrics, setMetrics] = useState<ExportMetrics | null>(null)
+  const [activeFormat, setActiveFormat] = useState<Exclude<
+    ExportFormat,
+    "markdown"
+  > | null>(null)
+  const [pngDecision, setPngDecision] = useState<"paged" | null>(null)
+  const [progressMessage, setProgressMessage] = useState<string>("")
+  const [statusSummary, setStatusSummary] = useState<string>("")
   const contentRef = useRef<HTMLDivElement>(null)
   const taskId = useMemo(
     () => new URLSearchParams(window.location.search).get("taskId"),
@@ -321,7 +429,12 @@ function ExportRendererTab() {
           throw new Error("Export task not found.")
         }
 
-        setTask(response.task as ExportTask)
+        const exportTask = response.task as ExportTask
+        setTask(exportTask)
+        setActiveFormat(exportTask.format)
+        setPngDecision(null)
+        setProgressMessage("")
+        setStatusSummary("")
       })
       .catch((loadError) => {
         const message =
@@ -338,7 +451,56 @@ function ExportRendererTab() {
   }, [taskId])
 
   useEffect(() => {
-    if (!taskId || !task || !contentRef.current) {
+    if (!task || !contentRef.current || !activeFormat) {
+      return
+    }
+
+    let cancelled = false
+
+    const inspect = async () => {
+      await document.fonts.ready
+      await new Promise((resolve) => window.setTimeout(resolve, 150))
+
+      if (cancelled || !contentRef.current) {
+        return
+      }
+
+      const nextMetrics = getContentMetrics(contentRef.current)
+      const nextStrategy = getExportStrategy(nextMetrics)
+
+      setMetrics(nextMetrics)
+      setStrategy(nextStrategy)
+
+      if (activeFormat === "pdf") {
+        setStatusSummary(describeStrategy("pdf", nextStrategy, "pdf"))
+      } else if (nextStrategy.sizeTier === "short") {
+        setStatusSummary(describeStrategy("png", nextStrategy, "single"))
+      } else if (nextStrategy.sizeTier === "medium") {
+        setStatusSummary(describeStrategy("png", nextStrategy, "merge"))
+      } else if (pngDecision === "paged") {
+        setStatusSummary(describeStrategy("png", nextStrategy, "paged"))
+      } else {
+        setStatusSummary(nextStrategy.summary)
+      }
+    }
+
+    void inspect()
+
+    return () => {
+      cancelled = true
+    }
+  }, [task, activeFormat, pngDecision])
+
+  useEffect(() => {
+    if (!taskId || !task || !contentRef.current || !activeFormat || !strategy) {
+      return
+    }
+
+    if (
+      activeFormat === "png" &&
+      strategy.sizeTier === "super_long" &&
+      pngDecision !== "paged"
+    ) {
       return
     }
 
@@ -350,18 +512,16 @@ function ExportRendererTab() {
         await new Promise((resolve) => window.setTimeout(resolve, 300))
 
         try {
-          if (task.format === "pdf") {
+          if (activeFormat === "pdf") {
+            setProgressMessage("正在分页渲染 PDF…")
             const objectUrl = await buildPdfObjectUrl(contentRef.current!)
             await downloadObjectUrl(
               objectUrl,
-              buildDownloadFilename(task.filenameBase, task.format)
+              buildDownloadFilename(task.filenameBase, activeFormat)
             )
           } else {
-            const contentHeight = Math.ceil(contentRef.current!.scrollHeight)
-            const contentWidth = Math.ceil(contentRef.current!.scrollWidth)
-            const pageCssHeight = Math.floor((contentWidth * 841.89) / 595.28)
-
-            if (contentHeight <= pageCssHeight) {
+            if (strategy.sizeTier === "short") {
+              setProgressMessage("短内容，正在导出单张 PNG…")
               const dataUrl = await toPng(contentRef.current!, {
                 cacheBust: true,
                 pixelRatio: PNG_PIXEL_RATIO,
@@ -370,18 +530,20 @@ function ExportRendererTab() {
 
               await chrome.downloads.download({
                 url: dataUrl,
-                filename: buildDownloadFilename(task.filenameBase, task.format)
+                filename: buildDownloadFilename(task.filenameBase, activeFormat)
               })
-            } else if (canMergeToSinglePng(contentRef.current!)) {
+            } else if (strategy.sizeTier === "medium") {
+              setProgressMessage("中长内容，正在分页渲染并合并单张 PNG…")
               const objectUrl = await buildMergedPngObjectUrl(
                 contentRef.current!
               )
 
               await downloadObjectUrl(
                 objectUrl,
-                buildDownloadFilename(task.filenameBase, task.format)
+                buildDownloadFilename(task.filenameBase, activeFormat)
               )
             } else {
+              setProgressMessage("超长内容，正在分页导出 PNG…")
               await withPagedCanvases(
                 contentRef.current!,
                 PNG_PIXEL_RATIO,
@@ -399,7 +561,7 @@ function ExportRendererTab() {
           }
         } catch (error) {
           throw new Error(
-            `${task.format.toUpperCase()} render failed: ${
+            `${activeFormat.toUpperCase()} render failed: ${
               error instanceof Error ? error.message : "unknown error"
             }`
           )
@@ -413,8 +575,10 @@ function ExportRendererTab() {
           await chrome.runtime.sendMessage({
             type: "render-export-complete",
             taskId,
-            format: task.format,
-            title: task.article.title
+            format: activeFormat,
+            title: task.article.title,
+            summaryMessage:
+              statusSummary || describeStrategy(activeFormat, strategy)
           } satisfies BackgroundMessage)
         }
 
@@ -453,7 +617,7 @@ function ExportRendererTab() {
     return () => {
       cancelled = true
     }
-  }, [task, taskId])
+  }, [activeFormat, pngDecision, statusSummary, strategy, task, taskId])
 
   if (error) {
     return (
@@ -467,6 +631,79 @@ function ExportRendererTab() {
 
   return (
     <main className="plasmo-min-h-screen plasmo-bg-[radial-gradient(circle_at_top,_#fff9ef,_#f6efe6_55%,_#efe3d1)] plasmo-p-10">
+      {task && strategy && activeFormat ? (
+        <section className="plasmo-mx-auto plasmo-mb-6 plasmo-w-full plasmo-max-w-[860px] plasmo-rounded-[24px] plasmo-border plasmo-border-[#eadbc9] plasmo-bg-white/90 plasmo-p-6 plasmo-shadow-[0_18px_40px_rgba(120,84,50,0.08)]">
+          <div className="plasmo-flex plasmo-items-start plasmo-justify-between plasmo-gap-4">
+            <div>
+              <div className="plasmo-text-[12px] plasmo-uppercase plasmo-tracking-[0.24em] plasmo-text-[#b07d48]">
+                Export Strategy
+              </div>
+              <h2 className="plasmo-mt-2 plasmo-text-2xl plasmo-font-semibold plasmo-text-[#352a1e]">
+                {strategy.sizeTier === "short"
+                  ? "短内容"
+                  : strategy.sizeTier === "medium"
+                    ? "中长内容"
+                    : "超长内容"}
+              </h2>
+              <p className="plasmo-mt-2 plasmo-text-sm plasmo-text-[#6c5238]">
+                推荐格式：{strategy.recommendedFormat.toUpperCase()} ·
+                当前导出：
+                {activeFormat.toUpperCase()}
+              </p>
+            </div>
+            <div className="plasmo-rounded-full plasmo-bg-[#f6ede2] plasmo-px-3 plasmo-py-1 plasmo-text-xs plasmo-font-medium plasmo-text-[#8a5a2d]">
+              {statusSummary}
+            </div>
+          </div>
+
+          <div className="plasmo-mt-4 plasmo-grid plasmo-gap-3 plasmo-text-sm plasmo-text-[#5f4a35] md:plasmo-grid-cols-3">
+            <div className="plasmo-rounded-2xl plasmo-bg-[#fbf4ea] plasmo-p-4">
+              宽度 {metrics?.contentWidth ?? "-"}px
+            </div>
+            <div className="plasmo-rounded-2xl plasmo-bg-[#fbf4ea] plasmo-p-4">
+              高度 {metrics?.contentHeight ?? "-"}px
+            </div>
+            <div className="plasmo-rounded-2xl plasmo-bg-[#fbf4ea] plasmo-p-4">
+              预估页数 {metrics?.totalPages ?? "-"}
+            </div>
+          </div>
+
+          <div className="plasmo-mt-4 plasmo-space-y-2 plasmo-text-sm plasmo-text-[#5f4a35]">
+            {strategy.reason.map((line) => (
+              <div key={line}>{line}</div>
+            ))}
+            {progressMessage ? (
+              <div className="plasmo-font-medium plasmo-text-[#8a5a2d]">
+                {progressMessage}
+              </div>
+            ) : null}
+          </div>
+
+          {activeFormat === "png" &&
+          strategy.sizeTier === "super_long" &&
+          pngDecision !== "paged" ? (
+            <div className="plasmo-mt-5 plasmo-flex plasmo-gap-3">
+              <button
+                onClick={() => {
+                  setActiveFormat("pdf")
+                  setProgressMessage("已切换为 PDF 导出策略。")
+                }}
+                className="plasmo-rounded-xl plasmo-bg-[#3f3427] plasmo-px-4 plasmo-py-2 plasmo-text-sm plasmo-font-medium plasmo-text-white hover:plasmo-bg-[#2f261d]">
+                改为 PDF 导出
+              </button>
+              <button
+                onClick={() => {
+                  setPngDecision("paged")
+                  setStatusSummary(describeStrategy("png", strategy, "paged"))
+                  setProgressMessage("已确认继续分页导出 PNG。")
+                }}
+                className="plasmo-rounded-xl plasmo-border plasmo-border-[#d9c2a9] plasmo-bg-white plasmo-px-4 plasmo-py-2 plasmo-text-sm plasmo-font-medium plasmo-text-[#6c5238] hover:plasmo-bg-[#fcf7f1]">
+                继续分页 PNG
+              </button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
       <div ref={contentRef}>
         {task ? (
           <ExportDocument article={task.article} />
