@@ -1,4 +1,6 @@
 export type ExportFormat = "markdown" | "pdf" | "png"
+export type ExportSizeTier = "short" | "medium" | "super_long"
+export type ExportPngMode = "single" | "merge" | "paged" | "confirm"
 
 export interface ExtractedArticle {
   title: string
@@ -25,6 +27,24 @@ export interface ExportStatus {
   updatedAt: string
 }
 
+export interface ExportMetrics {
+  contentWidth: number
+  contentHeight: number
+  pageCssHeight: number
+  totalPages: number
+  mergedWidth: number
+  mergedHeight: number
+  mergedBytes: number
+}
+
+export interface ExportStrategy {
+  sizeTier: ExportSizeTier
+  recommendedFormat: Exclude<ExportFormat, "markdown">
+  pngMode: ExportPngMode
+  reason: string[]
+  summary: string
+}
+
 export type BackgroundMessage =
   | { type: "get-render-task"; taskId: string }
   | {
@@ -32,5 +52,6 @@ export type BackgroundMessage =
       taskId: string
       format: Exclude<ExportFormat, "markdown">
       title?: string
+      summaryMessage?: string
     }
   | { type: "render-export-error"; taskId: string; error: string }
