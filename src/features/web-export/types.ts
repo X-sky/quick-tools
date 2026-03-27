@@ -1,8 +1,6 @@
 export type ExportFormat = "markdown" | "pdf" | "png"
-export type ExportSizeTier = "short" | "medium" | "super_long"
-export type ExportPngMode = "single" | "merge" | "paged" | "confirm"
 
-export interface ExtractedArticle {
+export interface MarkdownExportSource {
   title: string
   url: string
   byline?: string
@@ -10,13 +8,13 @@ export interface ExtractedArticle {
   capturedAt: string
   markdown: string
   plainText: string
-  contentHtml: string
 }
 
-export interface ExportTask {
-  article: ExtractedArticle
+export interface RenderJob {
+  source: MarkdownExportSource
   filenameBase: string
   format: Exclude<ExportFormat, "markdown">
+  imageMode: "single_preferred"
 }
 
 export interface ExportStatus {
@@ -27,31 +25,14 @@ export interface ExportStatus {
   updatedAt: string
 }
 
-export interface ExportMetrics {
-  contentWidth: number
-  contentHeight: number
-  pageCssHeight: number
-  totalPages: number
-  mergedWidth: number
-  mergedHeight: number
-  mergedBytes: number
-}
-
-export interface ExportStrategy {
-  sizeTier: ExportSizeTier
-  recommendedFormat: Exclude<ExportFormat, "markdown">
-  pngMode: ExportPngMode
-  reason: string[]
-  summary: string
-}
-
 export type BackgroundMessage =
-  | { type: "get-render-task"; taskId: string }
+  | { type: "get-render-job"; taskId: string }
+  | { type: "render-job-progress"; taskId: string; message: string }
   | {
-      type: "render-export-complete"
+      type: "render-job-complete"
       taskId: string
       format: Exclude<ExportFormat, "markdown">
       title?: string
       summaryMessage?: string
     }
-  | { type: "render-export-error"; taskId: string; error: string }
+  | { type: "render-job-error"; taskId: string; error: string }

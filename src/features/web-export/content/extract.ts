@@ -1,7 +1,7 @@
 import { Readability } from "@mozilla/readability"
 import TurndownService from "turndown"
 
-import type { ExtractedArticle } from "../types"
+import type { MarkdownExportSource } from "../types"
 
 const turndownService = new TurndownService({
   headingStyle: "atx",
@@ -81,7 +81,7 @@ function fallbackMarkdown(plainText: string) {
     .join("\n\n")
 }
 
-export function extractCurrentPage(): ExtractedArticle {
+export function extractCurrentPage(): MarkdownExportSource {
   const primary = pickPrimaryContainer(document)
   const scoped = buildScopedDocument(document, primary)
   const full = buildScopedDocument(document, null)
@@ -102,7 +102,6 @@ export function extractCurrentPage(): ExtractedArticle {
     excerpt: parsed?.excerpt?.trim() || undefined,
     capturedAt: new Date().toISOString(),
     markdown: markdown || fallbackMarkdown(plainText),
-    plainText,
-    contentHtml
+    plainText
   }
 }

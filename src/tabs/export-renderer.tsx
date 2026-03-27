@@ -1,128 +1,715 @@
+import { Resvg, initWasm } from "@resvg/resvg-wasm"
 import { decode, encode } from "fast-png"
-import { toCanvas, toPng } from "html-to-image"
-import { jsPDF } from "jspdf"
+import { marked } from "marked"
+import { PDFDocument } from "pdf-lib"
 import React, { useEffect, useMemo, useRef, useState } from "react"
+import satori from "satori"
 
+import bodyFontUrl from "data-url:../assets/fonts/Arial Unicode.ttf"
+import monoFontUrl from "data-url:../assets/fonts/Courier New.ttf"
+import resvgWasmUrl from "data-url:../assets/resvg-index_bg.wasm"
 import {
   hasRuntimeContext,
   isExtensionContextInvalid
 } from "~features/web-export/extension-runtime"
-import { ExportDocument } from "~features/web-export/render/ExportDocument"
 import type {
   BackgroundMessage,
-  ExportFormat,
-  ExportMetrics,
-  ExportStrategy,
-  ExportTask
+  MarkdownExportSource,
+  RenderJob
 } from "~features/web-export/types"
 import { buildDownloadFilename } from "~features/web-export/utils"
 
 import "~style.css"
 
-const PNG_PIXEL_RATIO = 3
-const PDF_PAGE_PIXEL_RATIO = 2
-const MAX_MERGED_CANVAS_DIMENSION = 16384
-const MAX_MERGED_RGBA_BYTES = 200 * 1024 * 1024
-const SUPER_LONG_PAGE_THRESHOLD = 12
-const PAGE_WIDTH_PT = 595.28
-const PAGE_HEIGHT_PT = 841.89
+const PAGE_WIDTH = 1120
+const PAGE_HEIGHT = 1584
+const PAGE_PADDING_X = 72
+const PAGE_PADDING_Y = 72
+const PAGE_GAP = 20
+const CONTENT_WIDTH = PAGE_WIDTH - PAGE_PADDING_X * 2
+const SINGLE_PNG_MAX_DIMENSION = 16000
+const SINGLE_PNG_MAX_BYTES = 200 * 1024 * 1024
+const PDF_PAGE_WIDTH_PT = 595.28
 
-function getContentMetrics(element: HTMLElement): ExportMetrics {
-  const contentWidth = Math.ceil(element.scrollWidth)
-  const contentHeight = Math.ceil(element.scrollHeight)
-  const pageCssHeight = Math.floor(
-    (contentWidth * PAGE_HEIGHT_PT) / PAGE_WIDTH_PT
+type RenderBlock = {
+  html: string
+  height: number
+}
+
+type RenderPage = {
+  html: string
+  height: number
+}
+
+type PngPreflight = {
+  shouldPrompt: boolean
+  mergedWidth: number
+  mergedHeight: number
+  mergedBytes: number
+}
+
+type RendererAssets = {
+  bodyFontBytes: Uint8Array
+  monoFontBytes: Uint8Array
+  bodyFontBuffer: ArrayBuffer
+  monoFontBuffer: ArrayBuffer
+}
+
+let rendererAssetsPromise: Promise<RendererAssets> | null = null
+
+marked.setOptions({
+  gfm: true,
+  breaks: false
+})
+
+async function loadBinaryAsset(url: string) {
+  const response = await fetch(url)
+
+  if (!response.ok) {
+    throw new Error(`Failed to load asset: ${url}`)
+  }
+
+  return new Uint8Array(await response.arrayBuffer())
+}
+
+function toExactArrayBuffer(bytes: Uint8Array) {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
   )
-  const totalPages = Math.max(1, Math.ceil(contentHeight / pageCssHeight))
-  const mergedWidth = Math.ceil(contentWidth * PNG_PIXEL_RATIO)
-  const mergedHeight = Math.ceil(contentHeight * PNG_PIXEL_RATIO)
+}
+
+async function getRendererAssets() {
+  if (!rendererAssetsPromise) {
+    rendererAssetsPromise = (async () => {
+      const [wasmBinary, bodyFont, monoFont] = await Promise.all([
+        loadBinaryAsset(resvgWasmUrl),
+        loadBinaryAsset(bodyFontUrl),
+        loadBinaryAsset(monoFontUrl)
+      ])
+
+      await initWasm(wasmBinary)
+
+      return {
+        bodyFontBytes: bodyFont,
+        monoFontBytes: monoFont,
+        bodyFontBuffer: toExactArrayBuffer(bodyFont),
+        monoFontBuffer: toExactArrayBuffer(monoFont)
+      }
+    })()
+  }
+
+  return rendererAssetsPromise
+}
+
+function buildHeaderHtml(source: MarkdownExportSource) {
+  const meta = [
+    `来源：<a href="${source.url}" style="color:#7c4f1d;text-decoration:none;">${source.url}</a>`,
+    `抓取时间：${new Date(source.capturedAt).toLocaleString("zh-CN")}`
+  ]
+
+  if (source.byline) {
+    meta.push(`作者：${source.byline}`)
+  }
+
+  const excerpt = source.excerpt?.trim()
+    ? `<p style="display:flex;flex-direction:column;margin-top:18px;margin-right:0;margin-bottom:0;margin-left:0;color:#7a5e40;font-size:24px;line-height:1.65;">${escapeHtml(
+        source.excerpt.trim()
+      )}</p>`
+    : ""
+
+  return `
+    <section style="display:flex;flex-direction:column;margin-top:0;margin-right:0;margin-bottom:32px;margin-left:0;padding-top:0;padding-right:0;padding-bottom:28px;padding-left:0;border-bottom:1px solid #d8c3ab;">
+      <h1 style="display:flex;flex-direction:column;margin-top:0;margin-right:0;margin-bottom:14px;margin-left:0;font-size:54px;line-height:1.15;color:#2f2115;font-weight:700;">${escapeHtml(
+        source.title || "Untitled page"
+      )}</h1>
+      <div style="display:flex;flex-direction:column;row-gap:12px;color:#8a6a4b;font-size:21px;line-height:1.5;">
+        ${meta.map((item) => `<span>${item}</span>`).join("")}
+      </div>
+      ${excerpt}
+    </section>
+  `.trim()
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+}
+
+function absolutizeUrl(url: string, baseUrl: string) {
+  try {
+    return new URL(url, baseUrl).href
+  } catch {
+    return url
+  }
+}
+
+function walkAndStyleHtml(html: string, baseUrl: string) {
+  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html")
+  const root = doc.body.firstElementChild as HTMLElement | null
+
+  if (!root) {
+    return ""
+  }
+
+  const elements = Array.from(root.querySelectorAll("*"))
+
+  for (const element of elements) {
+    const tag = element.tagName.toLowerCase()
+
+    if (tag === "a") {
+      const href = element.getAttribute("href")
+
+      if (href) {
+        element.setAttribute("href", absolutizeUrl(href, baseUrl))
+      }
+
+      element.setAttribute(
+        "style",
+        "color:#7c4f1d;text-decoration:none;border-bottom:1px solid rgba(124,79,29,0.35);"
+      )
+    }
+
+    if (tag === "p") {
+      element.setAttribute(
+        "style",
+        "display:flex;flex-direction:column;margin:0;color:#2f2115;font-size:28px;line-height:1.75;"
+      )
+    }
+
+    if (/^h[1-6]$/.test(tag)) {
+      const size =
+        tag === "h1"
+          ? 48
+          : tag === "h2"
+            ? 42
+            : tag === "h3"
+              ? 36
+              : tag === "h4"
+                ? 32
+                : tag === "h5"
+                  ? 28
+                  : 26
+
+      element.setAttribute(
+        "style",
+        `display:flex;flex-direction:column;margin:0;color:#2f2115;font-size:${size}px;line-height:1.25;font-weight:700;`
+      )
+    }
+
+    if (tag === "ul" || tag === "ol") {
+      element.setAttribute(
+        "style",
+        "display:flex;flex-direction:column;margin-top:0;margin-right:0;margin-bottom:0;margin-left:0;padding-top:0;padding-right:0;padding-bottom:0;padding-left:30px;color:#2f2115;font-size:28px;line-height:1.75;"
+      )
+    }
+
+    if (tag === "li") {
+      element.setAttribute("style", "display:flex;margin:0;")
+    }
+
+    if (tag === "blockquote") {
+      element.setAttribute(
+        "style",
+        "display:flex;flex-direction:column;margin-top:0;margin-right:0;margin-bottom:0;margin-left:0;padding-top:16px;padding-right:20px;padding-bottom:16px;padding-left:20px;border-left:6px solid #c89d72;background:#f5ebde;color:#5f4934;font-size:26px;line-height:1.75;border-radius:12px;"
+      )
+    }
+
+    if (tag === "pre") {
+      element.setAttribute(
+        "style",
+        "display:flex;flex-direction:column;margin-top:0;margin-right:0;margin-bottom:0;margin-left:0;padding-top:18px;padding-right:22px;padding-bottom:18px;padding-left:22px;background:#23170f;color:#f8ead8;border-radius:18px;font-size:22px;line-height:1.7;white-space:pre-wrap;word-break:break-word;"
+      )
+    }
+
+    if (tag === "code" && element.parentElement?.tagName.toLowerCase() !== "pre") {
+      element.setAttribute(
+        "style",
+        "display:flex;padding-top:3px;padding-right:8px;padding-bottom:3px;padding-left:8px;background:#f2e7d9;color:#8c4818;border-radius:8px;font-size:0.92em;"
+      )
+    }
+
+    if (tag === "pre" || element.parentElement?.tagName.toLowerCase() === "pre") {
+      element.setAttribute(
+        "style",
+        `${
+          element.getAttribute("style") ?? ""
+        }font-family:'Courier New','Menlo','Monaco',monospace;`
+      )
+    }
+
+    if (tag === "table") {
+      element.setAttribute(
+        "style",
+        "display:flex;flex-direction:column;width:100%;margin:0;border-collapse:collapse;font-size:24px;line-height:1.6;border-radius:14px;overflow:hidden;"
+      )
+    }
+
+    if (tag === "thead" || tag === "tbody" || tag === "tr") {
+      element.setAttribute("style", "display:flex;width:100%;")
+    }
+
+    if (tag === "th" || tag === "td") {
+      const isHeader = tag === "th"
+      element.setAttribute(
+        "style",
+        `display:flex;flex:1;border:1px solid #d8c3ab;padding-top:14px;padding-right:16px;padding-bottom:14px;padding-left:16px;text-align:left;background:${isHeader ? "#efe0cf" : "#fffdf8"};color:#2f2115;`
+      )
+    }
+
+    if (tag === "hr") {
+      element.setAttribute(
+        "style",
+        "display:flex;margin:0;border:none;border-top:1px solid #d8c3ab;"
+      )
+    }
+
+    if (tag === "img") {
+      const src = element.getAttribute("src")
+
+      if (src) {
+        element.setAttribute("src", absolutizeUrl(src, baseUrl))
+      }
+
+      element.setAttribute(
+        "style",
+        "display:flex;max-width:100%;height:auto;margin-top:0;margin-right:auto;margin-bottom:0;margin-left:auto;border-radius:18px;"
+      )
+    }
+  }
+
+  return root.innerHTML.trim()
+}
+
+function wrapRenderBlockHtml(html: string) {
+  return `<section style="display:flex;flex-direction:column;width:100%;margin-top:0;margin-right:0;margin-bottom:24px;margin-left:0;">${html}</section>`
+}
+
+async function blobToDataUrl(blob: Blob) {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error("Failed to read binary blob"))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function supportsInlineDataUrl(mimeType: string) {
+  return [
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/gif",
+    "image/svg+xml"
+  ].includes(mimeType.toLowerCase())
+}
+
+async function loadImageDimensions(src: string) {
+  return await new Promise<{ width: number; height: number } | null>(
+    (resolve) => {
+      const image = new Image()
+
+      image.onload = () => {
+        resolve(
+          image.naturalWidth > 0 && image.naturalHeight > 0
+            ? {
+                width: image.naturalWidth,
+                height: image.naturalHeight
+              }
+            : null
+        )
+      }
+
+      image.onerror = () => resolve(null)
+      image.src = src
+    }
+  )
+}
+
+async function inlineImagesInHtml(html: string, baseUrl: string) {
+  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html")
+  const root = doc.body.firstElementChild as HTMLElement | null
+
+  if (!root) {
+    return { html: "", failed: 0 }
+  }
+
+  let failed = 0
+  const images = Array.from(root.querySelectorAll("img"))
+
+  await Promise.all(
+    images.map(async (image) => {
+      const rawSrc = image.getAttribute("src")?.trim()
+
+      if (!rawSrc) {
+        image.replaceWith(buildImagePlaceholder(doc))
+        failed += 1
+        return
+      }
+
+      const src = absolutizeUrl(rawSrc, baseUrl)
+
+      try {
+        const response = await fetch(src, {
+          credentials: "include"
+        })
+
+        if (!response.ok) {
+          throw new Error(`Image request failed with ${response.status}`)
+        }
+
+        const blob = await response.blob()
+        let resolvedSrc = src
+
+        if (supportsInlineDataUrl(blob.type || "")) {
+          const dataUrl = await blobToDataUrl(blob)
+          resolvedSrc = dataUrl
+        }
+
+        const dimensions = await loadImageDimensions(resolvedSrc)
+
+        if (!dimensions) {
+          throw new Error("Image size cannot be determined")
+        }
+
+        image.setAttribute("src", resolvedSrc)
+        image.setAttribute("width", String(dimensions.width))
+        image.setAttribute("height", String(dimensions.height))
+      } catch {
+        image.replaceWith(buildImagePlaceholder(doc))
+        failed += 1
+      }
+    })
+  )
+
+  return {
+    html: root.innerHTML.trim(),
+    failed
+  }
+}
+
+function buildImagePlaceholder(doc: Document) {
+  const placeholder = doc.createElement("div")
+  placeholder.setAttribute(
+    "style",
+    "display:flex;justify-content:center;margin-top:18px;margin-right:0;margin-bottom:18px;margin-left:0;padding-top:18px;padding-right:20px;padding-bottom:18px;padding-left:20px;border:1px dashed #d8c3ab;border-radius:18px;background:#fbf4ea;color:#8a6a4b;font-size:22px;line-height:1.6;text-align:center;"
+  )
+  placeholder.textContent = "图片未能成功嵌入导出结果"
+  return placeholder
+}
+
+async function buildRenderBlocks(source: MarkdownExportSource) {
+  const tokens = marked.lexer(source.markdown || source.plainText || "")
+  const htmlBlocks = tokens
+    .filter((token) => token.type !== "space")
+    .map((token) => marked.parser([token]))
+    .map((html) => walkAndStyleHtml(html, source.url))
+    .map((html) => wrapRenderBlockHtml(html))
+    .filter(Boolean)
+
+  const normalizedBlocks = [buildHeaderHtml(source), ...htmlBlocks]
+  const preparedBlocks = await Promise.all(
+    normalizedBlocks.map(async (html) => {
+      const prepared = await inlineImagesInHtml(html, source.url)
+      return {
+        html: prepared.html,
+        imageFailures: prepared.failed
+      }
+    })
+  )
+
+  return {
+    blocks: preparedBlocks.map((block) => block.html),
+    imageFailures: preparedBlocks.reduce(
+      (total, block) => total + block.imageFailures,
+      0
+    )
+  }
+}
+
+function measureBlocks(blocks: string[], measurementRoot: HTMLDivElement) {
+  return blocks.map((blockHtml) => {
+    const block = document.createElement("div")
+    block.style.width = `${CONTENT_WIDTH}px`
+    block.style.boxSizing = "border-box"
+    block.innerHTML = blockHtml
+    measurementRoot.appendChild(block)
+    const height = Math.ceil(block.getBoundingClientRect().height)
+    measurementRoot.removeChild(block)
+
+    return {
+      html: blockHtml,
+      height
+    }
+  })
+}
+
+function paginateBlocks(blocks: RenderBlock[]) {
+  const usableHeight = PAGE_HEIGHT - PAGE_PADDING_Y * 2 - 52
+  const pages: RenderPage[] = []
+  let current: RenderBlock[] = []
+  let currentHeight = 0
+
+  const pushCurrent = () => {
+    if (current.length === 0) {
+      return
+    }
+
+    pages.push({
+      html: current.map((block) => block.html).join(""),
+      height: Math.max(PAGE_HEIGHT, currentHeight + PAGE_PADDING_Y * 2 + 52)
+    })
+    current = []
+    currentHeight = 0
+  }
+
+  for (const block of blocks) {
+    const nextHeight =
+      current.length === 0
+        ? block.height
+        : currentHeight + PAGE_GAP + block.height
+
+    if (current.length > 0 && nextHeight > usableHeight) {
+      pushCurrent()
+    }
+
+    current.push(block)
+    currentHeight =
+      current.length === 1 ? block.height : currentHeight + PAGE_GAP + block.height
+
+    if (block.height > usableHeight) {
+      pushCurrent()
+    }
+  }
+
+  pushCurrent()
+
+  return pages
+}
+
+function getPngPreflight(pages: RenderPage[]): PngPreflight {
+  const mergedWidth = PAGE_WIDTH
+  const mergedHeight = pages.reduce((sum, page) => sum + page.height, 0)
   const mergedBytes = mergedWidth * mergedHeight * 4
 
   return {
-    contentWidth,
-    contentHeight,
-    pageCssHeight,
-    totalPages,
+    shouldPrompt:
+      mergedWidth > SINGLE_PNG_MAX_DIMENSION ||
+      mergedHeight > SINGLE_PNG_MAX_DIMENSION ||
+      mergedBytes > SINGLE_PNG_MAX_BYTES,
     mergedWidth,
     mergedHeight,
     mergedBytes
   }
 }
 
-function getExportStrategy(metrics: ExportMetrics): ExportStrategy {
-  if (metrics.contentHeight <= metrics.pageCssHeight) {
-    return {
-      sizeTier: "short",
-      recommendedFormat: "png",
-      pngMode: "single",
-      reason: ["内容高度在单页内，适合直接导出单张 PNG。"],
-      summary: "SHORT · 单张 PNG"
-    }
-  }
-
-  const canMerge =
-    metrics.mergedWidth <= MAX_MERGED_CANVAS_DIMENSION &&
-    metrics.mergedHeight <= MAX_MERGED_CANVAS_DIMENSION &&
-    metrics.mergedBytes <= MAX_MERGED_RGBA_BYTES &&
-    metrics.totalPages <= SUPER_LONG_PAGE_THRESHOLD
-
-  if (canMerge) {
-    return {
-      sizeTier: "medium",
-      recommendedFormat: "png",
-      pngMode: "merge",
-      reason: ["内容需要分页渲染，但仍可在安全尺寸内合并为单张 PNG。"],
-      summary: "MEDIUM · 合并单张 PNG"
-    }
-  }
-
-  const reason = []
-
-  if (metrics.totalPages > SUPER_LONG_PAGE_THRESHOLD) {
-    reason.push(`分页数达到 ${metrics.totalPages} 页，已视为超长内容。`)
-  }
-
-  if (metrics.mergedWidth > MAX_MERGED_CANVAS_DIMENSION) {
-    reason.push("合并后的 PNG 宽度将超过浏览器安全尺寸。")
-  }
-
-  if (metrics.mergedHeight > MAX_MERGED_CANVAS_DIMENSION) {
-    reason.push("合并后的 PNG 高度将超过浏览器安全尺寸。")
-  }
-
-  if (metrics.mergedBytes > MAX_MERGED_RGBA_BYTES) {
-    reason.push("合并后的位图内存开销过高。")
-  }
-
-  return {
-    sizeTier: "super_long",
-    recommendedFormat: "pdf",
-    pngMode: "confirm",
-    reason,
-    summary: "SUPER_LONG · 推荐 PDF"
-  }
+function buildPageMarkup(page: RenderPage, index: number, total: number) {
+  return `
+    <div style="display:flex;flex-direction:column;justify-content:space-between;width:${PAGE_WIDTH}px;height:${page.height}px;padding-top:${PAGE_PADDING_Y}px;padding-right:${PAGE_PADDING_X}px;padding-bottom:${PAGE_PADDING_Y}px;padding-left:${PAGE_PADDING_X}px;box-sizing:border-box;background:#f6efe6;font-family:'Arial Unicode MS','PingFang SC','Hiragino Sans GB',sans-serif;">
+      <div style="display:flex;flex-direction:column;width:${CONTENT_WIDTH}px;">
+        ${page.html}
+      </div>
+      <div style="margin-top:26px;color:#8a6a4b;font-size:18px;line-height:1.4;text-align:right;">${index + 1} / ${total}</div>
+    </div>
+  `.trim()
 }
 
-function describeStrategy(
-  format: Exclude<ExportFormat, "markdown">,
-  strategy: ExportStrategy,
-  modeOverride?: "single" | "merge" | "paged" | "pdf"
+function styleStringToObject(styleText: string) {
+  return styleText
+    .split(";")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .reduce<Record<string, string>>((styles, entry) => {
+      const [property, ...rest] = entry.split(":")
+
+      if (!property || rest.length === 0) {
+        return styles
+      }
+
+      const value = rest.join(":").trim()
+      const key = property
+        .trim()
+        .replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
+
+      styles[key] = value
+      return styles
+    }, {})
+}
+
+function domNodeToReact(node: ChildNode, key: string): React.ReactNode {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent
+  }
+
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    return null
+  }
+
+  const element = node as HTMLElement
+  const props: Record<string, unknown> = { key }
+
+  for (const attribute of Array.from(element.attributes)) {
+    if (attribute.name === "style") {
+      props.style = styleStringToObject(attribute.value)
+      continue
+    }
+
+    if (attribute.name === "class") {
+      continue
+    }
+
+    if (attribute.name === "colspan") {
+      props.colSpan = Number(attribute.value)
+      continue
+    }
+
+    if (attribute.name === "rowspan") {
+      props.rowSpan = Number(attribute.value)
+      continue
+    }
+
+    props[attribute.name] = attribute.value
+  }
+
+  const existingStyle = (props.style as Record<string, string> | undefined) ?? {}
+  const hasMultipleChildren =
+    Array.from(element.childNodes).filter((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        return Boolean(child.textContent?.trim())
+      }
+
+      return child.nodeType === Node.ELEMENT_NODE
+    }).length > 1
+
+  if (
+    element.tagName.toLowerCase() === "div" &&
+    hasMultipleChildren &&
+    !existingStyle.display
+  ) {
+    props.style = {
+      ...existingStyle,
+      display: "flex",
+      flexDirection: "column"
+    }
+  }
+
+  const children = Array.from(element.childNodes).map((child, index) =>
+    domNodeToReact(child, `${key}-${index}`)
+  )
+
+  return React.createElement(
+    element.tagName.toLowerCase(),
+    props,
+    ...(children.length > 0 ? children : [])
+  )
+}
+
+function htmlToSatoriNode(markup: string) {
+  const doc = new DOMParser().parseFromString(markup, "text/html")
+  const root = doc.body.firstElementChild
+
+  if (!root) {
+    return React.createElement("div", null)
+  }
+
+  return domNodeToReact(root, "root") as React.ReactElement
+}
+
+async function renderPagePngBytes(
+  page: RenderPage,
+  index: number,
+  total: number,
+  assets: RendererAssets
 ) {
-  const mode = modeOverride || (format === "pdf" ? "pdf" : strategy.pngMode)
+  const svg = await satori(htmlToSatoriNode(buildPageMarkup(page, index, total)), {
+    width: PAGE_WIDTH,
+    height: page.height,
+    fonts: [
+      {
+        name: "Arial Unicode MS",
+        data: assets.bodyFontBuffer,
+        weight: 400,
+        style: "normal"
+      },
+      {
+        name: "Courier New",
+        data: assets.monoFontBuffer,
+        weight: 400,
+        style: "normal"
+      }
+    ]
+  })
 
-  if (format === "pdf" || mode === "pdf") {
-    return `${strategy.sizeTier.toUpperCase()} · 分页导出 PDF`
+  const resvg = new Resvg(svg, {
+    background: "#f6efe6",
+    font: {
+      fontBuffers: [assets.bodyFontBytes, assets.monoFontBytes],
+      defaultFontFamily: "Arial Unicode MS",
+      monospaceFamily: "Courier New"
+    }
+  })
+
+  return resvg.render().asPng()
+}
+
+function canMergeIntoSinglePng(pagePngs: Uint8Array[]) {
+  const decodedPages = pagePngs.map((bytes) => decode(bytes))
+  const mergedWidth = decodedPages[0]?.width ?? 0
+  const mergedHeight = decodedPages.reduce((sum, page) => sum + page.height, 0)
+  const mergedBytes = mergedWidth * mergedHeight * 4
+
+  return (
+    mergedWidth <= SINGLE_PNG_MAX_DIMENSION &&
+    mergedHeight <= SINGLE_PNG_MAX_DIMENSION &&
+    mergedBytes <= SINGLE_PNG_MAX_BYTES
+  )
+}
+
+function mergePngPages(pagePngs: Uint8Array[]) {
+  const decodedPages = pagePngs.map((bytes) => decode(bytes))
+  const mergedWidth = decodedPages[0].width
+  const mergedHeight = decodedPages.reduce((sum, page) => sum + page.height, 0)
+  const data = new Uint8Array(mergedWidth * mergedHeight * 4)
+
+  let offsetY = 0
+
+  for (const page of decodedPages) {
+    const rgba = page.data as Uint8Array
+
+    for (let row = 0; row < page.height; row += 1) {
+      const sourceStart = row * page.width * 4
+      const sourceEnd = sourceStart + page.width * 4
+      const targetStart = (offsetY + row) * mergedWidth * 4
+      data.set(rgba.subarray(sourceStart, sourceEnd), targetStart)
+    }
+
+    offsetY += page.height
   }
 
-  if (mode === "single") {
-    return `${strategy.sizeTier.toUpperCase()} · 单张 PNG`
-  }
+  return encode({
+    width: mergedWidth,
+    height: mergedHeight,
+    data,
+    channels: 4,
+    depth: 8
+  })
+}
 
-  if (mode === "merge") {
-    return `${strategy.sizeTier.toUpperCase()} · 已合并为单张 PNG`
-  }
+function bytesToObjectUrl(bytes: Uint8Array, mimeType: string) {
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }))
+}
 
-  return `${strategy.sizeTier.toUpperCase()} · 已分页导出 PNG`
+async function downloadObjectUrl(url: string, filename: string) {
+  await chrome.downloads.download({
+    url,
+    filename
+  })
+
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
 
 function buildPageFilename(base: string, index: number, total: number) {
@@ -131,256 +718,46 @@ function buildPageFilename(base: string, index: number, total: number) {
     : `${base}.png`
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement) {
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error("Failed to create image blob"))
-        return
-      }
+async function buildPdfBytes(pagePngs: Uint8Array[]) {
+  const pdf = await PDFDocument.create()
 
-      resolve(blob)
-    }, "image/png")
-  })
-}
+  for (const pngBytes of pagePngs) {
+    const embedded = await pdf.embedPng(pngBytes)
+    const pageWidth = PDF_PAGE_WIDTH_PT
+    const pageHeight = (embedded.height * pageWidth) / embedded.width
+    const page = pdf.addPage([pageWidth, pageHeight])
 
-async function blobToUint8Array(blob: Blob) {
-  return new Uint8Array(await blob.arrayBuffer())
-}
-
-function toRgbaBuffer(
-  data: Uint8Array | Uint8ClampedArray | Uint16Array,
-  width: number,
-  height: number,
-  channels: number
-) {
-  const rgba = new Uint8Array(width * height * 4)
-
-  if (channels === 4) {
-    if (data instanceof Uint16Array) {
-      for (let i = 0; i < width * height; i += 1) {
-        const sourceOffset = i * 4
-        const targetOffset = i * 4
-        rgba[targetOffset] = data[sourceOffset] >> 8
-        rgba[targetOffset + 1] = data[sourceOffset + 1] >> 8
-        rgba[targetOffset + 2] = data[sourceOffset + 2] >> 8
-        rgba[targetOffset + 3] = data[sourceOffset + 3] >> 8
-      }
-    } else {
-      rgba.set(data as Uint8Array)
-    }
-
-    return rgba
-  }
-
-  for (let i = 0; i < width * height; i += 1) {
-    const targetOffset = i * 4
-    const sourceOffset = i * channels
-
-    if (channels === 3) {
-      rgba[targetOffset] = Number(data[sourceOffset])
-      rgba[targetOffset + 1] = Number(data[sourceOffset + 1])
-      rgba[targetOffset + 2] = Number(data[sourceOffset + 2])
-      rgba[targetOffset + 3] = 255
-      continue
-    }
-
-    if (channels === 2) {
-      const gray = Number(data[sourceOffset])
-      rgba[targetOffset] = gray
-      rgba[targetOffset + 1] = gray
-      rgba[targetOffset + 2] = gray
-      rgba[targetOffset + 3] = Number(data[sourceOffset + 1])
-      continue
-    }
-
-    const gray = Number(data[sourceOffset])
-    rgba[targetOffset] = gray
-    rgba[targetOffset + 1] = gray
-    rgba[targetOffset + 2] = gray
-    rgba[targetOffset + 3] = 255
-  }
-
-  return rgba
-}
-
-async function downloadObjectUrl(url: string, filename: string) {
-  const downloadId = await chrome.downloads.download({
-    url,
-    filename
-  })
-
-  window.setTimeout(() => URL.revokeObjectURL(url), 30_000)
-
-  return downloadId
-}
-
-async function withPagedCanvases(
-  element: HTMLElement,
-  pixelRatio: number,
-  onPage: (args: {
-    canvas: HTMLCanvasElement
-    index: number
-    total: number
-    cssWidth: number
-    cssHeight: number
-  }) => Promise<void>
-) {
-  const contentWidth = Math.ceil(element.scrollWidth)
-  const contentHeight = Math.ceil(element.scrollHeight)
-  const pageCssHeight = Math.floor(
-    (contentWidth * PAGE_HEIGHT_PT) / PAGE_WIDTH_PT
-  )
-  const totalPages = Math.max(1, Math.ceil(contentHeight / pageCssHeight))
-  const stagingRoot = document.createElement("div")
-
-  stagingRoot.style.position = "fixed"
-  stagingRoot.style.left = "-99999px"
-  stagingRoot.style.top = "0"
-  stagingRoot.style.width = `${contentWidth}px`
-  stagingRoot.style.pointerEvents = "none"
-  stagingRoot.style.zIndex = "-1"
-  document.body.appendChild(stagingRoot)
-
-  try {
-    for (let index = 0; index < totalPages; index += 1) {
-      const offsetY = index * pageCssHeight
-      const currentPageHeight = Math.min(pageCssHeight, contentHeight - offsetY)
-      const viewport = document.createElement("div")
-      viewport.style.width = `${contentWidth}px`
-      viewport.style.height = `${currentPageHeight}px`
-      viewport.style.overflow = "hidden"
-      viewport.style.background = "#f6efe6"
-      viewport.style.position = "relative"
-
-      const pageClone = element.cloneNode(true) as HTMLElement
-      pageClone.style.margin = "0"
-      pageClone.style.width = `${contentWidth}px`
-      pageClone.style.transform = `translateY(-${offsetY}px)`
-      pageClone.style.transformOrigin = "top left"
-
-      viewport.appendChild(pageClone)
-      stagingRoot.appendChild(viewport)
-
-      try {
-        const canvas = await toCanvas(viewport, {
-          cacheBust: true,
-          pixelRatio,
-          backgroundColor: "#f6efe6",
-          skipAutoScale: true
-        })
-
-        await onPage({
-          canvas,
-          index,
-          total: totalPages,
-          cssWidth: contentWidth,
-          cssHeight: currentPageHeight
-        })
-      } finally {
-        stagingRoot.removeChild(viewport)
-      }
-    }
-  } finally {
-    document.body.removeChild(stagingRoot)
-  }
-}
-
-async function buildPdfObjectUrl(element: HTMLElement) {
-  try {
-    const pdf = new jsPDF({
-      orientation: "portrait",
-      unit: "pt",
-      format: "a4"
+    page.drawImage(embedded, {
+      x: 0,
+      y: 0,
+      width: pageWidth,
+      height: pageHeight
     })
-    const pageWidth = pdf.internal.pageSize.getWidth()
-
-    await withPagedCanvases(
-      element,
-      PDF_PAGE_PIXEL_RATIO,
-      async ({ canvas, index, cssWidth, cssHeight }) => {
-        const renderedHeight = (cssHeight * pageWidth) / cssWidth
-
-        if (index > 0) {
-          pdf.addPage()
-        }
-
-        pdf.addImage(
-          canvas,
-          "JPEG",
-          0,
-          0,
-          pageWidth,
-          renderedHeight,
-          undefined,
-          "MEDIUM"
-        )
-      }
-    )
-
-    const blob = pdf.output("blob")
-    return URL.createObjectURL(blob)
-  } catch (error) {
-    throw new Error(
-      `PDF compose failed: ${
-        error instanceof Error ? error.message : "unknown error"
-      }`
-    )
   }
+
+  return await pdf.save()
 }
 
-async function buildMergedPngObjectUrl(element: HTMLElement) {
-  const mergedWidth = Math.ceil(element.scrollWidth * PNG_PIXEL_RATIO)
-  const mergedHeight = Math.ceil(element.scrollHeight * PNG_PIXEL_RATIO)
-  const mergedBuffer = new Uint8Array(mergedWidth * mergedHeight * 4)
+async function notifyBackground(message: BackgroundMessage) {
+  if (!hasRuntimeContext()) {
+    return
+  }
 
-  let offsetY = 0
-
-  await withPagedCanvases(element, PNG_PIXEL_RATIO, async ({ canvas }) => {
-    const blob = await canvasToBlob(canvas)
-    const pngBytes = await blobToUint8Array(blob)
-    const decoded = decode(pngBytes)
-    const rgba = toRgbaBuffer(
-      decoded.data,
-      decoded.width,
-      decoded.height,
-      decoded.channels
-    )
-
-    for (let row = 0; row < decoded.height; row += 1) {
-      const sourceStart = row * decoded.width * 4
-      const sourceEnd = sourceStart + decoded.width * 4
-      const targetStart = (offsetY + row) * mergedWidth * 4
-      mergedBuffer.set(rgba.subarray(sourceStart, sourceEnd), targetStart)
-    }
-
-    offsetY += decoded.height
-  })
-
-  const encoded = encode({
-    width: mergedWidth,
-    height: mergedHeight,
-    data: mergedBuffer,
-    channels: 4,
-    depth: 8
-  })
-  const blob = new Blob([encoded], { type: "image/png" })
-  return URL.createObjectURL(blob)
+  await chrome.runtime.sendMessage(message)
 }
 
 function ExportRendererTab() {
-  const [task, setTask] = useState<ExportTask | null>(null)
+  const [job, setJob] = useState<RenderJob | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [strategy, setStrategy] = useState<ExportStrategy | null>(null)
-  const [metrics, setMetrics] = useState<ExportMetrics | null>(null)
-  const [activeFormat, setActiveFormat] = useState<Exclude<
-    ExportFormat,
-    "markdown"
-  > | null>(null)
-  const [pngDecision, setPngDecision] = useState<"paged" | null>(null)
-  const [progressMessage, setProgressMessage] = useState<string>("")
-  const [statusSummary, setStatusSummary] = useState<string>("")
-  const contentRef = useRef<HTMLDivElement>(null)
+  const [progressMessage, setProgressMessage] = useState(
+    "Initializing export task..."
+  )
+  const [activeFormat, setActiveFormat] = useState<"png" | "pdf" | null>(null)
+  const [pngDecision, setPngDecision] = useState<"single" | "paged" | "pdf" | null>(
+    null
+  )
+  const [preflight, setPreflight] = useState<PngPreflight | null>(null)
+  const measurementRef = useRef<HTMLDivElement>(null)
   const taskId = useMemo(
     () => new URLSearchParams(window.location.search).get("taskId"),
     []
@@ -410,7 +787,7 @@ function ExportRendererTab() {
 
   useEffect(() => {
     if (!taskId) {
-      setError("Missing export task id.")
+      setError("Missing render task id.")
       return
     }
 
@@ -421,298 +798,232 @@ function ExportRendererTab() {
 
     void chrome.runtime
       .sendMessage({
-        type: "get-render-task",
+        type: "get-render-job",
         taskId
       } satisfies BackgroundMessage)
       .then((response) => {
-        if (!response?.ok || !response.task) {
-          throw new Error("Export task not found.")
+        if (!response?.ok || !response.job) {
+          throw new Error("Render job not found.")
         }
 
-        const exportTask = response.task as ExportTask
-        setTask(exportTask)
-        setActiveFormat(exportTask.format)
+        const nextJob = response.job as RenderJob
+        setJob(nextJob)
+        setActiveFormat(nextJob.format)
         setPngDecision(null)
-        setProgressMessage("")
-        setStatusSummary("")
+        setPreflight(null)
       })
       .catch((loadError) => {
-        const message =
-          loadError instanceof Error
-            ? loadError.message
-            : "Failed to load export task."
-
         setError(
           isExtensionContextInvalid(loadError)
             ? "Extension reloaded. Please start the export again."
-            : message
+            : loadError instanceof Error
+              ? loadError.message
+              : "Failed to load render job."
         )
       })
   }, [taskId])
 
   useEffect(() => {
-    if (!task || !contentRef.current || !activeFormat) {
+    if (!taskId || !job || !measurementRef.current || !activeFormat) {
       return
     }
 
     let cancelled = false
 
-    const inspect = async () => {
-      await document.fonts.ready
-      await new Promise((resolve) => window.setTimeout(resolve, 150))
-
-      if (cancelled || !contentRef.current) {
+    const updateProgress = async (message: string) => {
+      if (cancelled) {
         return
       }
 
-      const nextMetrics = getContentMetrics(contentRef.current)
-      const nextStrategy = getExportStrategy(nextMetrics)
-
-      setMetrics(nextMetrics)
-      setStrategy(nextStrategy)
-
-      if (activeFormat === "pdf") {
-        setStatusSummary(describeStrategy("pdf", nextStrategy, "pdf"))
-      } else if (nextStrategy.sizeTier === "short") {
-        setStatusSummary(describeStrategy("png", nextStrategy, "single"))
-      } else if (nextStrategy.sizeTier === "medium") {
-        setStatusSummary(describeStrategy("png", nextStrategy, "merge"))
-      } else if (pngDecision === "paged") {
-        setStatusSummary(describeStrategy("png", nextStrategy, "paged"))
-      } else {
-        setStatusSummary(nextStrategy.summary)
-      }
+      setProgressMessage(message)
+      await notifyBackground({
+        type: "render-job-progress",
+        taskId,
+        message
+      })
     }
 
-    void inspect()
-
-    return () => {
-      cancelled = true
-    }
-  }, [task, activeFormat, pngDecision])
-
-  useEffect(() => {
-    if (!taskId || !task || !contentRef.current || !activeFormat || !strategy) {
-      return
-    }
-
-    if (
-      activeFormat === "png" &&
-      strategy.sizeTier === "super_long" &&
-      pngDecision !== "paged"
-    ) {
-      return
-    }
-
-    let cancelled = false
-
-    const render = async () => {
+    const run = async () => {
       try {
-        await document.fonts.ready
-        await new Promise((resolve) => window.setTimeout(resolve, 300))
+        await updateProgress("Initializing the Markdown renderer...")
+        const assets = await getRendererAssets()
 
-        try {
-          if (activeFormat === "pdf") {
-            setProgressMessage("正在分页渲染 PDF…")
-            const objectUrl = await buildPdfObjectUrl(contentRef.current!)
-            await downloadObjectUrl(
-              objectUrl,
-              buildDownloadFilename(task.filenameBase, activeFormat)
+        await updateProgress("Preparing Markdown content...")
+        const prepared = await buildRenderBlocks(job.source)
+
+        await updateProgress("Calculating page layout...")
+        const measuredBlocks = measureBlocks(prepared.blocks, measurementRef.current!)
+        const pages = paginateBlocks(measuredBlocks)
+
+        if (activeFormat === "png") {
+          const nextPreflight = getPngPreflight(pages)
+          setPreflight(nextPreflight)
+
+          if (nextPreflight.shouldPrompt && !pngDecision) {
+            setProgressMessage(
+              "This export is too large for a reliable single PNG. PDF is recommended, or you can continue with paged PNG files."
             )
-          } else {
-            if (strategy.sizeTier === "short") {
-              setProgressMessage("短内容，正在导出单张 PNG…")
-              const dataUrl = await toPng(contentRef.current!, {
-                cacheBust: true,
-                pixelRatio: PNG_PIXEL_RATIO,
-                backgroundColor: "#f6efe6"
-              })
-
-              await chrome.downloads.download({
-                url: dataUrl,
-                filename: buildDownloadFilename(task.filenameBase, activeFormat)
-              })
-            } else if (strategy.sizeTier === "medium") {
-              setProgressMessage("中长内容，正在分页渲染并合并单张 PNG…")
-              const objectUrl = await buildMergedPngObjectUrl(
-                contentRef.current!
-              )
-
-              await downloadObjectUrl(
-                objectUrl,
-                buildDownloadFilename(task.filenameBase, activeFormat)
-              )
-            } else {
-              setProgressMessage("超长内容，正在分页导出 PNG…")
-              await withPagedCanvases(
-                contentRef.current!,
-                PNG_PIXEL_RATIO,
-                async ({ canvas, index, total }) => {
-                  const blob = await canvasToBlob(canvas)
-                  const objectUrl = URL.createObjectURL(blob)
-
-                  await downloadObjectUrl(
-                    objectUrl,
-                    buildPageFilename(task.filenameBase, index, total)
-                  )
-                }
-              )
-            }
+            return
           }
-        } catch (error) {
-          throw new Error(
-            `${activeFormat.toUpperCase()} render failed: ${
-              error instanceof Error ? error.message : "unknown error"
-            }`
+        }
+
+        await updateProgress("Rendering page images...")
+        const pagePngs: Uint8Array[] = []
+
+        for (let index = 0; index < pages.length; index += 1) {
+          await updateProgress(
+            `Rendering page ${index + 1} of ${pages.length}...`
+          )
+          pagePngs.push(
+            await renderPagePngBytes(pages[index], index, pages.length, assets)
           )
         }
 
-        if (cancelled) {
-          return
-        }
+        if (activeFormat === "png") {
+          await updateProgress("Preparing PNG download...")
 
-        if (hasRuntimeContext()) {
-          await chrome.runtime.sendMessage({
-            type: "render-export-complete",
+          const shouldMerge =
+            pngDecision !== "paged" && canMergeIntoSinglePng(pagePngs)
+
+          if (shouldMerge) {
+            const mergedBytes = mergePngPages(pagePngs)
+            const mergedUrl = bytesToObjectUrl(mergedBytes, "image/png")
+            await downloadObjectUrl(
+              mergedUrl,
+              buildDownloadFilename(job.filenameBase, "png")
+            )
+
+            const summary =
+              prepared.imageFailures > 0
+                ? "PNG 已开始下载，部分图片未成功嵌入。"
+                : "PNG 已开始下载。"
+
+            await notifyBackground({
+              type: "render-job-complete",
+              taskId,
+              format: "png",
+              title: job.source.title,
+              summaryMessage: summary
+            })
+          } else {
+            for (let index = 0; index < pagePngs.length; index += 1) {
+              const pageUrl = bytesToObjectUrl(pagePngs[index], "image/png")
+              await downloadObjectUrl(
+                pageUrl,
+                buildPageFilename(job.filenameBase, index, pagePngs.length)
+              )
+            }
+
+            const summary =
+              prepared.imageFailures > 0
+                ? "PNG 已分页下载，部分图片未成功嵌入。"
+                : "PNG 已分页下载。"
+
+            await notifyBackground({
+              type: "render-job-complete",
+              taskId,
+              format: "png",
+              title: job.source.title,
+              summaryMessage: summary
+            })
+          }
+        } else {
+          await updateProgress("Generating the PDF file...")
+          const pdfBytes = await buildPdfBytes(pagePngs)
+          const pdfUrl = bytesToObjectUrl(pdfBytes, "application/pdf")
+          await downloadObjectUrl(
+            pdfUrl,
+            buildDownloadFilename(job.filenameBase, "pdf")
+          )
+
+          const summary =
+            prepared.imageFailures > 0
+              ? "PDF 已开始下载，部分图片未成功嵌入。"
+              : "PDF 已开始下载。"
+
+          await notifyBackground({
+            type: "render-job-complete",
             taskId,
-            format: activeFormat,
-            title: task.article.title,
-            summaryMessage:
-              statusSummary || describeStrategy(activeFormat, strategy)
-          } satisfies BackgroundMessage)
+            format: "pdf",
+            title: job.source.title,
+            summaryMessage: summary
+          })
         }
 
         window.setTimeout(() => window.close(), 120)
       } catch (renderError) {
-        if (cancelled) {
-          return
-        }
-
-        const message = isExtensionContextInvalid(renderError)
-          ? "Extension reloaded. Please start the export again."
-          : renderError instanceof Error
-            ? renderError.message
+        const message =
+          renderError instanceof Error
+            ? renderError.stack || renderError.message
             : "Failed to render export document."
 
-        setError(message)
+        if (!cancelled) {
+          setError(message)
 
-        if (hasRuntimeContext()) {
-          try {
-            await chrome.runtime.sendMessage({
-              type: "render-export-error",
+          if (hasRuntimeContext()) {
+            await notifyBackground({
+              type: "render-job-error",
               taskId,
               error: message
-            } satisfies BackgroundMessage)
-          } catch (notifyError) {
-            if (!isExtensionContextInvalid(notifyError)) {
-              console.error("Failed to report export error", notifyError)
-            }
+            })
           }
         }
       }
     }
 
-    void render()
+    void run()
 
     return () => {
       cancelled = true
     }
-  }, [activeFormat, pngDecision, statusSummary, strategy, task, taskId])
-
-  if (error) {
-    return (
-      <main className="plasmo-min-h-screen plasmo-bg-[#f6efe6] plasmo-p-8 plasmo-text-[#4f2f2f]">
-        <div className="plasmo-mx-auto plasmo-max-w-2xl plasmo-rounded-3xl plasmo-border plasmo-border-red-200 plasmo-bg-white plasmo-p-8">
-          {error}
-        </div>
-      </main>
-    )
-  }
+  }, [activeFormat, job, pngDecision, taskId])
 
   return (
-    <main className="plasmo-min-h-screen plasmo-bg-[radial-gradient(circle_at_top,_#fff9ef,_#f6efe6_55%,_#efe3d1)] plasmo-p-10">
-      {task && strategy && activeFormat ? (
-        <section className="plasmo-mx-auto plasmo-mb-6 plasmo-w-full plasmo-max-w-[860px] plasmo-rounded-[24px] plasmo-border plasmo-border-[#eadbc9] plasmo-bg-white/90 plasmo-p-6 plasmo-shadow-[0_18px_40px_rgba(120,84,50,0.08)]">
-          <div className="plasmo-flex plasmo-items-start plasmo-justify-between plasmo-gap-4">
-            <div>
-              <div className="plasmo-text-[12px] plasmo-uppercase plasmo-tracking-[0.24em] plasmo-text-[#b07d48]">
-                Export Strategy
-              </div>
-              <h2 className="plasmo-mt-2 plasmo-text-2xl plasmo-font-semibold plasmo-text-[#352a1e]">
-                {strategy.sizeTier === "short"
-                  ? "短内容"
-                  : strategy.sizeTier === "medium"
-                    ? "中长内容"
-                    : "超长内容"}
-              </h2>
-              <p className="plasmo-mt-2 plasmo-text-sm plasmo-text-[#6c5238]">
-                推荐格式：{strategy.recommendedFormat.toUpperCase()} ·
-                当前导出：
-                {activeFormat.toUpperCase()}
-              </p>
-            </div>
-            <div className="plasmo-rounded-full plasmo-bg-[#f6ede2] plasmo-px-3 plasmo-py-1 plasmo-text-xs plasmo-font-medium plasmo-text-[#8a5a2d]">
-              {statusSummary}
-            </div>
-          </div>
-
-          <div className="plasmo-mt-4 plasmo-grid plasmo-gap-3 plasmo-text-sm plasmo-text-[#5f4a35] md:plasmo-grid-cols-3">
-            <div className="plasmo-rounded-2xl plasmo-bg-[#fbf4ea] plasmo-p-4">
-              宽度 {metrics?.contentWidth ?? "-"}px
-            </div>
-            <div className="plasmo-rounded-2xl plasmo-bg-[#fbf4ea] plasmo-p-4">
-              高度 {metrics?.contentHeight ?? "-"}px
-            </div>
-            <div className="plasmo-rounded-2xl plasmo-bg-[#fbf4ea] plasmo-p-4">
-              预估页数 {metrics?.totalPages ?? "-"}
-            </div>
-          </div>
-
-          <div className="plasmo-mt-4 plasmo-space-y-2 plasmo-text-sm plasmo-text-[#5f4a35]">
-            {strategy.reason.map((line) => (
-              <div key={line}>{line}</div>
-            ))}
-            {progressMessage ? (
-              <div className="plasmo-font-medium plasmo-text-[#8a5a2d]">
-                {progressMessage}
-              </div>
-            ) : null}
-          </div>
-
-          {activeFormat === "png" &&
-          strategy.sizeTier === "super_long" &&
-          pngDecision !== "paged" ? (
-            <div className="plasmo-mt-5 plasmo-flex plasmo-gap-3">
+    <main className="plasmo-min-h-screen plasmo-bg-stone-100 plasmo-p-8 plasmo-text-stone-900">
+      <div className="plasmo-mx-auto plasmo-max-w-3xl plasmo-rounded-2xl plasmo-border plasmo-border-stone-200 plasmo-bg-white plasmo-p-6 plasmo-shadow-sm">
+        <h1 className="plasmo-text-xl plasmo-font-semibold">
+          Web Page Export
+        </h1>
+        <p className="plasmo-mt-3 plasmo-text-sm plasmo-leading-6 plasmo-text-stone-600">
+          {error || progressMessage}
+        </p>
+        {!error && activeFormat === "png" && preflight?.shouldPrompt && !pngDecision ? (
+          <div className="plasmo-mt-5 plasmo-rounded-xl plasmo-border plasmo-border-amber-200 plasmo-bg-amber-50 plasmo-p-4">
+            <p className="plasmo-text-sm plasmo-leading-6 plasmo-text-amber-900">
+              This PNG would be approximately {preflight.mergedWidth} x{" "}
+              {preflight.mergedHeight} pixels. A single image may be too large to
+              export reliably.
+            </p>
+            <div className="plasmo-mt-4 plasmo-flex plasmo-gap-3">
+              <button
+                onClick={() => setPngDecision("paged")}
+                className="plasmo-rounded-md plasmo-bg-stone-900 plasmo-px-4 plasmo-py-2 plasmo-text-sm plasmo-font-medium plasmo-text-white">
+                Export as paged PNG
+              </button>
               <button
                 onClick={() => {
                   setActiveFormat("pdf")
-                  setProgressMessage("已切换为 PDF 导出策略。")
+                  setPngDecision("pdf")
+                  setProgressMessage("Switching to PDF export...")
                 }}
-                className="plasmo-rounded-xl plasmo-bg-[#3f3427] plasmo-px-4 plasmo-py-2 plasmo-text-sm plasmo-font-medium plasmo-text-white hover:plasmo-bg-[#2f261d]">
-                改为 PDF 导出
-              </button>
-              <button
-                onClick={() => {
-                  setPngDecision("paged")
-                  setStatusSummary(describeStrategy("png", strategy, "paged"))
-                  setProgressMessage("已确认继续分页导出 PNG。")
-                }}
-                className="plasmo-rounded-xl plasmo-border plasmo-border-[#d9c2a9] plasmo-bg-white plasmo-px-4 plasmo-py-2 plasmo-text-sm plasmo-font-medium plasmo-text-[#6c5238] hover:plasmo-bg-[#fcf7f1]">
-                继续分页 PNG
+                className="plasmo-rounded-md plasmo-bg-white plasmo-px-4 plasmo-py-2 plasmo-text-sm plasmo-font-medium plasmo-text-stone-900 plasmo-ring-1 plasmo-ring-stone-300">
+                Export as PDF instead
               </button>
             </div>
-          ) : null}
-        </section>
-      ) : null}
-      <div ref={contentRef}>
-        {task ? (
-          <ExportDocument article={task.article} />
-        ) : (
-          <div className="plasmo-mx-auto plasmo-max-w-2xl plasmo-rounded-3xl plasmo-border plasmo-border-[#eadbc9] plasmo-bg-white plasmo-p-8 plasmo-text-[#6f5742]">
-            Preparing export document...
           </div>
-        )}
+        ) : null}
       </div>
+      <div
+        ref={measurementRef}
+        style={{
+          position: "fixed",
+          left: "-100000px",
+          top: 0,
+          width: `${CONTENT_WIDTH}px`,
+          pointerEvents: "none",
+          opacity: 0
+        }}
+      />
     </main>
   )
 }

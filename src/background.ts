@@ -3,8 +3,8 @@ import { extractArticleInPage } from "~features/web-export/extract-page"
 import type {
   BackgroundMessage,
   ExportFormat,
-  ExportTask,
-  ExtractedArticle
+  MarkdownExportSource,
+  RenderJob
 } from "~features/web-export/types"
 import {
   buildDownloadFilename,
@@ -67,7 +67,7 @@ async function extractArticle(tabId: number) {
       throw new Error("当前页面没有可导出的正文内容。")
     }
 
-    return article as ExtractedArticle
+    return article as MarkdownExportSource
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error ?? "")
 
@@ -85,24 +85,24 @@ async function extractArticle(tabId: number) {
   }
 }
 
-async function downloadDataUrl(
-  dataUrl: string,
+async function downloadUrl(
+  url: string,
   filename: string,
   saveAs = false
 ) {
   await chrome.downloads.download({
-    url: dataUrl,
+    url,
     filename,
     saveAs
   })
 }
 
-async function queueRenderTask(task: ExportTask) {
+async function queueRenderTask(job: RenderJob) {
   const taskId = crypto.randomUUID()
   const storageKey = getTaskStorageKey(taskId)
 
   await chrome.storage.local.set({
-    [storageKey]: task
+    [storageKey]: job
   })
 
   await chrome.tabs.create({
@@ -122,8 +122,8 @@ async function exportCurrentPage(format: ExportFormat, tab?: chrome.tabs.Tab) {
 
   if (format === "markdown") {
     const markdown = buildMarkdownDocument(article)
-    await downloadDataUrl(
-      toDataUrl(markdown, "text/markdown"),
+    await downloadUrl(
+      toDataUrl(markdown, "text/markdown;charset=utf-8"),
       buildDownloadFilename(filenameBase, format)
     )
     await setExportStatus(
@@ -136,9 +136,10 @@ async function exportCurrentPage(format: ExportFormat, tab?: chrome.tabs.Tab) {
   }
 
   await queueRenderTask({
-    article,
+    source: article,
     filenameBase,
-    format
+    format,
+    imageMode: "single_preferred"
   })
   await setExportStatus(
     "running",
@@ -187,14 +188,20 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 chrome.runtime.onMessage.addListener(
   (message: BackgroundMessage, sender, sendResponse) => {
     void (async () => {
-      if (message.type === "get-render-task") {
+      if (message.type === "get-render-job") {
         const storageKey = getTaskStorageKey(message.taskId)
         const result = await chrome.storage.local.get(storageKey)
-        sendResponse({ ok: true, task: result[storageKey] ?? null })
+        sendResponse({ ok: true, job: result[storageKey] ?? null })
         return
       }
 
-      if (message.type === "render-export-complete") {
+      if (message.type === "render-job-progress") {
+        await setExportStatus("running", message.message)
+        sendResponse({ ok: true })
+        return
+      }
+
+      if (message.type === "render-job-complete") {
         await clearRenderTask(message.taskId)
 
         await setExportStatus(
@@ -209,7 +216,7 @@ chrome.runtime.onMessage.addListener(
         return
       }
 
-      if (message.type === "render-export-error") {
+      if (message.type === "render-job-error") {
         await clearRenderTask(message.taskId)
 
         await setExportStatus("error", message.error)
