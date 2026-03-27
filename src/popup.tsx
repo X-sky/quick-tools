@@ -1,4 +1,5 @@
 import QrCodeGen from "~features/qr-code-gen"
+import { WebExportStatusCard } from "~features/web-export/popup-status"
 
 import "~style.css"
 
@@ -17,6 +18,7 @@ function IndexPopup() {
           JSON Formatter ↗
         </button>
       </div>
+      <WebExportStatusCard />
       <QrCodeGen />
     </div>
   )
