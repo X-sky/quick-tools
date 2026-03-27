@@ -1,5 +1,5 @@
 import { EXPORT_TASK_KEY_PREFIX } from "./constants"
-import type { ExportFormat, ExportStatus, ExtractedArticle } from "./types"
+import type { ExportFormat, ExportStatus, MarkdownExportSource } from "./types"
 
 export function sanitizeFileName(name: string) {
   return name
@@ -20,40 +20,40 @@ export function formatTimestamp(date = new Date()) {
   return `${year}${month}${day}-${hours}${minutes}${seconds}`
 }
 
-export function buildFilenameBase(article: ExtractedArticle) {
+export function buildFilenameBase(source: MarkdownExportSource) {
   const fallbackHost = (() => {
     try {
-      return new URL(article.url).hostname
+      return new URL(source.url).hostname
     } catch {
       return "web-export"
     }
   })()
 
   const title =
-    sanitizeFileName(article.title) ||
+    sanitizeFileName(source.title) ||
     sanitizeFileName(fallbackHost) ||
     "web-export"
 
-  return `${title}-${formatTimestamp(new Date(article.capturedAt))}`
+  return `${title}-${formatTimestamp(new Date(source.capturedAt))}`
 }
 
-export function buildMarkdownDocument(article: ExtractedArticle) {
+export function buildMarkdownDocument(source: MarkdownExportSource) {
   const lines = [
-    `# ${article.title || "Untitled page"}`,
+    `# ${source.title || "Untitled page"}`,
     "",
-    `- Source: ${article.url}`,
-    `- Captured At: ${article.capturedAt}`
+    `- Source: ${source.url}`,
+    `- Captured At: ${source.capturedAt}`
   ]
 
-  if (article.byline) {
-    lines.push(`- Byline: ${article.byline}`)
+  if (source.byline) {
+    lines.push(`- Byline: ${source.byline}`)
   }
 
-  if (article.excerpt) {
-    lines.push("", `> ${article.excerpt}`)
+  if (source.excerpt) {
+    lines.push("", `> ${source.excerpt}`)
   }
 
-  lines.push("", article.markdown.trim() || article.plainText.trim())
+  lines.push("", source.markdown.trim() || source.plainText.trim())
 
   return lines.join("\n").trim() + "\n"
 }
@@ -67,7 +67,8 @@ export function buildDownloadFilename(
 }
 
 export function toDataUrl(content: string, mimeType: string) {
-  return `data:${mimeType};charset=utf-8,${encodeURIComponent(content)}`
+  const encoded = btoa(unescape(encodeURIComponent(content)))
+  return `data:${mimeType};base64,${encoded}`
 }
 
 export function createStatus(
