@@ -1,0 +1,2 @@
+- [ ] Implement a GitHub-like diff algorithm (not just line-by-line), supporting structured, block-level changes and optimal human-readable diff display
+- [ ] Add a template type creation mode to the QR code feature
