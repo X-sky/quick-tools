@@ -1,6 +1,6 @@
 import { marked } from "marked"
 
-import type { MarkdownExportSource } from "./types"
+import type { MarkdownExportSource, RenderedDocument } from "./types"
 
 marked.setOptions({
   gfm: true,
@@ -26,172 +26,88 @@ function absolutizeUrl(url: string, baseUrl: string) {
 
 function buildHeaderHtml(source: MarkdownExportSource) {
   const meta = [
-    `来源：<a href="${source.url}" style="color:#7c4f1d;text-decoration:none;">${source.url}</a>`,
-    `抓取时间：${new Date(source.capturedAt).toLocaleString("zh-CN")}`
+    `<a href="${escapeHtml(source.url)}">${escapeHtml(source.url)}</a>`,
+    `抓取时间：${escapeHtml(
+      new Date(source.capturedAt).toLocaleString("zh-CN")
+    )}`
   ]
 
   if (source.byline) {
-    meta.push(`作者：${source.byline}`)
+    meta.push(`作者：${escapeHtml(source.byline)}`)
   }
 
-  const excerpt = source.excerpt?.trim()
-    ? `<p style="display:flex;flex-direction:column;margin-top:18px;margin-right:0;margin-bottom:0;margin-left:0;color:#7a5e40;font-size:24px;line-height:1.65;">${escapeHtml(
-        source.excerpt.trim()
-      )}</p>`
-    : ""
-
   return `
-    <section style="display:flex;flex-direction:column;margin-top:0;margin-right:0;margin-bottom:32px;margin-left:0;padding-top:0;padding-right:0;padding-bottom:28px;padding-left:0;border-bottom:1px solid #d8c3ab;">
-      <h1 style="display:flex;flex-direction:column;margin-top:0;margin-right:0;margin-bottom:14px;margin-left:0;font-size:54px;line-height:1.15;color:#2f2115;font-weight:700;">${escapeHtml(
-        source.title || "Untitled page"
-      )}</h1>
-      <div style="display:flex;flex-direction:column;row-gap:12px;color:#8a6a4b;font-size:21px;line-height:1.5;">
+    <header class="web-export-markdown__header" data-export-block="header">
+      <div class="web-export-markdown__eyebrow">Web Export</div>
+      <h1>${escapeHtml(source.title || "Untitled page")}</h1>
+      <div class="web-export-markdown__meta">
         ${meta.map((item) => `<span>${item}</span>`).join("")}
       </div>
-      ${excerpt}
-    </section>
+      ${
+        source.excerpt?.trim()
+          ? `<p class="web-export-markdown__excerpt">${escapeHtml(
+              source.excerpt.trim()
+            )}</p>`
+          : ""
+      }
+    </header>
   `.trim()
 }
 
-function walkAndStyleHtml(html: string, baseUrl: string) {
-  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html")
+function normalizeDocumentHtml(html: string, baseUrl: string) {
+  const doc = new DOMParser().parseFromString(html, "text/html")
   const root = doc.body.firstElementChild as HTMLElement | null
 
   if (!root) {
     return ""
   }
 
-  const elements = Array.from(root.querySelectorAll("*"))
+  root.querySelectorAll("a").forEach((link) => {
+    const href = link.getAttribute("href")
 
-  for (const element of elements) {
-    const tag = element.tagName.toLowerCase()
+    if (!href) {
+      return
+    }
 
-    if (tag === "a") {
-      const href = element.getAttribute("href")
+    link.setAttribute("href", absolutizeUrl(href, baseUrl))
+  })
 
-      if (href) {
-        element.setAttribute("href", absolutizeUrl(href, baseUrl))
+  root.querySelectorAll("img").forEach((image) => {
+    const src = image.getAttribute("src")
+
+    if (src) {
+      image.setAttribute("src", absolutizeUrl(src, baseUrl))
+    }
+
+    image.removeAttribute("srcset")
+    image.removeAttribute("sizes")
+    image.removeAttribute("loading")
+    image.removeAttribute("decoding")
+  })
+
+  root.querySelectorAll("table").forEach((table) => {
+    table.setAttribute("data-export-block", "table")
+  })
+
+  root.querySelectorAll("pre").forEach((pre) => {
+    pre.setAttribute("data-export-block", "pre")
+  })
+
+  root.querySelectorAll("ul, ol").forEach((list) => {
+    list.setAttribute("data-export-block", "list")
+  })
+
+  root
+    .querySelectorAll(
+      "p, blockquote, hr, h1, h2, h3, h4, h5, h6, figure, img"
+    )
+    .forEach((node) => {
+      if (!node.getAttribute("data-export-block")) {
+        node.setAttribute("data-export-block", node.tagName.toLowerCase())
       }
+    })
 
-      element.setAttribute(
-        "style",
-        "color:#7c4f1d;text-decoration:none;border-bottom:1px solid rgba(124,79,29,0.35);"
-      )
-    }
-
-    if (tag === "p") {
-      element.setAttribute(
-        "style",
-        "display:flex;flex-direction:column;margin:0;color:#2f2115;font-size:28px;line-height:1.75;"
-      )
-    }
-
-    if (/^h[1-6]$/.test(tag)) {
-      const size =
-        tag === "h1"
-          ? 48
-          : tag === "h2"
-            ? 42
-            : tag === "h3"
-              ? 36
-              : tag === "h4"
-                ? 32
-                : tag === "h5"
-                  ? 28
-                  : 26
-
-      element.setAttribute(
-        "style",
-        `display:flex;flex-direction:column;margin:0;color:#2f2115;font-size:${size}px;line-height:1.25;font-weight:700;`
-      )
-    }
-
-    if (tag === "ul" || tag === "ol") {
-      element.setAttribute(
-        "style",
-        "display:flex;flex-direction:column;margin-top:0;margin-right:0;margin-bottom:0;margin-left:0;padding-top:0;padding-right:0;padding-bottom:0;padding-left:30px;color:#2f2115;font-size:28px;line-height:1.75;"
-      )
-    }
-
-    if (tag === "li") {
-      element.setAttribute("style", "display:flex;margin:0;")
-    }
-
-    if (tag === "blockquote") {
-      element.setAttribute(
-        "style",
-        "display:flex;flex-direction:column;margin-top:0;margin-right:0;margin-bottom:0;margin-left:0;padding-top:16px;padding-right:20px;padding-bottom:16px;padding-left:20px;border-left:6px solid #c89d72;background:#f5ebde;color:#5f4934;font-size:26px;line-height:1.75;border-radius:12px;"
-      )
-    }
-
-    if (tag === "pre") {
-      element.setAttribute(
-        "style",
-        "display:flex;flex-direction:column;margin-top:0;margin-right:0;margin-bottom:0;margin-left:0;padding-top:18px;padding-right:22px;padding-bottom:18px;padding-left:22px;background:#23170f;color:#f8ead8;border-radius:18px;font-size:22px;line-height:1.7;white-space:pre-wrap;word-break:break-word;"
-      )
-    }
-
-    if (tag === "code" && element.parentElement?.tagName.toLowerCase() !== "pre") {
-      element.setAttribute(
-        "style",
-        "display:flex;padding-top:3px;padding-right:8px;padding-bottom:3px;padding-left:8px;background:#f2e7d9;color:#8c4818;border-radius:8px;font-size:0.92em;"
-      )
-    }
-
-    if (tag === "pre" || element.parentElement?.tagName.toLowerCase() === "pre") {
-      element.setAttribute(
-        "style",
-        `${
-          element.getAttribute("style") ?? ""
-        }font-family:'Courier New','Menlo','Monaco',monospace;`
-      )
-    }
-
-    if (tag === "table") {
-      element.setAttribute(
-        "style",
-        "display:flex;flex-direction:column;width:100%;margin:0;border-collapse:collapse;font-size:24px;line-height:1.6;border-radius:14px;overflow:hidden;"
-      )
-    }
-
-    if (tag === "thead" || tag === "tbody" || tag === "tr") {
-      element.setAttribute("style", "display:flex;width:100%;")
-    }
-
-    if (tag === "th" || tag === "td") {
-      const isHeader = tag === "th"
-      element.setAttribute(
-        "style",
-        `display:flex;flex:1;border:1px solid #d8c3ab;padding-top:14px;padding-right:16px;padding-bottom:14px;padding-left:16px;text-align:left;background:${isHeader ? "#efe0cf" : "#fffdf8"};color:#2f2115;`
-      )
-    }
-
-    if (tag === "hr") {
-      element.setAttribute(
-        "style",
-        "display:flex;margin:0;border:none;border-top:1px solid #d8c3ab;"
-      )
-    }
-
-    if (tag === "img") {
-      const src = element.getAttribute("src")
-
-      if (src) {
-        element.setAttribute("src", absolutizeUrl(src, baseUrl))
-      }
-
-      element.setAttribute(
-        "style",
-        "display:flex;max-width:100%;height:auto;margin-top:0;margin-right:auto;margin-bottom:0;margin-left:auto;border-radius:18px;"
-      )
-    }
-  }
-
-  return root.innerHTML.trim()
-}
-
-function wrapRenderBlockHtml(html: string) {
-  return `<section style="display:flex;flex-direction:column;width:100%;margin-top:0;margin-right:0;margin-bottom:24px;margin-left:0;">${html}</section>`
+  return root.outerHTML
 }
 
 async function blobToDataUrl(blob: Blob) {
@@ -209,7 +125,8 @@ function supportsInlineDataUrl(mimeType: string) {
     "image/jpeg",
     "image/jpg",
     "image/gif",
-    "image/svg+xml"
+    "image/svg+xml",
+    "image/webp"
   ].includes(mimeType.toLowerCase())
 }
 
@@ -221,10 +138,7 @@ async function loadImageDimensions(src: string) {
       image.onload = () => {
         resolve(
           image.naturalWidth > 0 && image.naturalHeight > 0
-            ? {
-                width: image.naturalWidth,
-                height: image.naturalHeight
-              }
+            ? { width: image.naturalWidth, height: image.naturalHeight }
             : null
         )
       }
@@ -236,17 +150,15 @@ async function loadImageDimensions(src: string) {
 }
 
 function buildImagePlaceholder(doc: Document) {
-  const placeholder = doc.createElement("div")
-  placeholder.setAttribute(
-    "style",
-    "display:flex;justify-content:center;margin-top:18px;margin-right:0;margin-bottom:18px;margin-left:0;padding-top:18px;padding-right:20px;padding-bottom:18px;padding-left:20px;border:1px dashed #d8c3ab;border-radius:18px;background:#fbf4ea;color:#8a6a4b;font-size:22px;line-height:1.6;text-align:center;"
-  )
-  placeholder.textContent = "图片未能成功嵌入导出结果"
-  return placeholder
+  const figure = doc.createElement("figure")
+  figure.className = "web-export-markdown__image-placeholder"
+  figure.setAttribute("data-export-block", "image")
+  figure.innerHTML = `<div>图片未能成功嵌入导出结果</div>`
+  return figure
 }
 
-async function inlineImagesInHtml(html: string, baseUrl: string) {
-  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html")
+async function inlineImagesInDocument(html: string, baseUrl: string) {
+  const doc = new DOMParser().parseFromString(html, "text/html")
   const root = doc.body.firstElementChild as HTMLElement | null
 
   if (!root) {
@@ -269,9 +181,7 @@ async function inlineImagesInHtml(html: string, baseUrl: string) {
       const src = absolutizeUrl(rawSrc, baseUrl)
 
       try {
-        const response = await fetch(src, {
-          credentials: "include"
-        })
+        const response = await fetch(src, { credentials: "include" })
 
         if (!response.ok) {
           throw new Error(`Image request failed with ${response.status}`)
@@ -281,8 +191,7 @@ async function inlineImagesInHtml(html: string, baseUrl: string) {
         let resolvedSrc = src
 
         if (supportsInlineDataUrl(blob.type || "")) {
-          const dataUrl = await blobToDataUrl(blob)
-          resolvedSrc = dataUrl
+          resolvedSrc = await blobToDataUrl(blob)
         }
 
         const dimensions = await loadImageDimensions(resolvedSrc)
@@ -294,6 +203,7 @@ async function inlineImagesInHtml(html: string, baseUrl: string) {
         image.setAttribute("src", resolvedSrc)
         image.setAttribute("width", String(dimensions.width))
         image.setAttribute("height", String(dimensions.height))
+        image.setAttribute("data-export-block", "image")
       } catch {
         image.replaceWith(buildImagePlaceholder(doc))
         failed += 1
@@ -302,36 +212,29 @@ async function inlineImagesInHtml(html: string, baseUrl: string) {
   )
 
   return {
-    html: root.innerHTML.trim(),
+    html: root.outerHTML,
     failed
   }
 }
 
-export async function buildRenderBlocks(source: MarkdownExportSource) {
-  const tokens = marked.lexer(source.markdown || source.plainText || "")
-  const htmlBlocks = tokens
-    .filter((token) => token.type !== "space")
-    .map((token) => marked.parser([token]))
-    .map((html) => walkAndStyleHtml(html, source.url))
-    .map((html) => wrapRenderBlockHtml(html))
-    .filter(Boolean)
+export async function buildRenderedDocument(
+  source: MarkdownExportSource
+): Promise<RenderedDocument> {
+  const markdownHtml = marked.parse(source.markdown || source.plainText || "")
+  const documentHtml = `
+    <article class="web-export-markdown">
+      ${buildHeaderHtml(source)}
+      <section class="web-export-markdown__body">
+        ${markdownHtml}
+      </section>
+    </article>
+  `.trim()
 
-  const normalizedBlocks = [buildHeaderHtml(source), ...htmlBlocks]
-  const preparedBlocks = await Promise.all(
-    normalizedBlocks.map(async (html) => {
-      const prepared = await inlineImagesInHtml(html, source.url)
-      return {
-        html: prepared.html,
-        imageFailures: prepared.failed
-      }
-    })
-  )
+  const normalizedHtml = normalizeDocumentHtml(documentHtml, source.url)
+  const prepared = await inlineImagesInDocument(normalizedHtml, source.url)
 
   return {
-    blocks: preparedBlocks.map((block) => block.html),
-    imageFailures: preparedBlocks.reduce(
-      (total, block) => total + block.imageFailures,
-      0
-    )
+    html: prepared.html,
+    imageFailures: prepared.failed
   }
 }

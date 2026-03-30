@@ -1,175 +1,151 @@
-import { Resvg } from "@resvg/resvg-wasm"
+import { toBlob, toJpeg, toPng } from "html-to-image"
 import { decode, encode } from "fast-png"
-import React from "react"
-import satori from "satori"
 
 import {
-  CONTENT_WIDTH,
+  PAGE_BACKGROUND,
+  PAGE_HEIGHT,
   PAGE_PADDING_X,
   PAGE_PADDING_Y,
   PAGE_WIDTH,
   SINGLE_PNG_MAX_BYTES,
   SINGLE_PNG_MAX_DIMENSION
 } from "./render-constants"
-import type { RenderPage, RendererAssets } from "./types"
+import type {
+  PdfCaptureProfile,
+  PdfPageCapture,
+  RenderPage
+} from "./types"
 
 function buildPageMarkup(page: RenderPage, index: number, total: number) {
   return `
-    <div style="display:flex;flex-direction:column;justify-content:space-between;width:${PAGE_WIDTH}px;height:${page.height}px;padding-top:${PAGE_PADDING_Y}px;padding-right:${PAGE_PADDING_X}px;padding-bottom:${PAGE_PADDING_Y}px;padding-left:${PAGE_PADDING_X}px;box-sizing:border-box;background:#f6efe6;font-family:'Arial Unicode MS','PingFang SC','Hiragino Sans GB',sans-serif;">
-      <div style="display:flex;flex-direction:column;width:${CONTENT_WIDTH}px;">
-        ${page.html}
+    <div class="web-export-page" style="width:${PAGE_WIDTH}px;height:${PAGE_HEIGHT}px;padding:${PAGE_PADDING_Y}px ${PAGE_PADDING_X}px;background:${PAGE_BACKGROUND};">
+      <div class="web-export-page__content">
+        <article class="web-export-markdown web-export-markdown--page">
+          ${page.html}
+        </article>
       </div>
-      <div style="margin-top:26px;color:#8a6a4b;font-size:18px;line-height:1.4;text-align:right;">${index + 1} / ${total}</div>
+      <div class="web-export-page__footer">${index + 1} / ${total}</div>
     </div>
   `.trim()
 }
 
-function styleStringToObject(styleText: string) {
-  return styleText
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .reduce<Record<string, string>>((styles, entry) => {
-      const [property, ...rest] = entry.split(":")
-
-      if (!property || rest.length === 0) {
-        return styles
-      }
-
-      const value = rest.join(":").trim()
-      const key = property
-        .trim()
-        .replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
-
-      styles[key] = value
-      return styles
-    }, {})
+async function dataUrlToBytes(dataUrl: string) {
+  const response = await fetch(dataUrl)
+  return new Uint8Array(await response.arrayBuffer())
 }
 
-function toNumericProp(value: string) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : value
+async function blobToBytes(blob: Blob) {
+  return new Uint8Array(await blob.arrayBuffer())
 }
 
-function domNodeToReact(node: ChildNode, key: string): React.ReactNode {
-  if (node.nodeType === Node.TEXT_NODE) {
-    return node.textContent
+function mountPageNode(
+  page: RenderPage,
+  index: number,
+  total: number,
+  captureRoot: HTMLDivElement
+) {
+  captureRoot.innerHTML = buildPageMarkup(page, index, total)
+  const pageNode = captureRoot.firstElementChild as HTMLElement | null
+
+  if (!pageNode) {
+    throw new Error("Failed to mount page for image export.")
   }
 
-  if (node.nodeType !== Node.ELEMENT_NODE) {
-    return null
-  }
-
-  const element = node as HTMLElement
-  const props: Record<string, unknown> = { key }
-
-  for (const attribute of Array.from(element.attributes)) {
-    if (attribute.name === "style") {
-      props.style = styleStringToObject(attribute.value)
-      continue
-    }
-
-    if (attribute.name === "class") {
-      continue
-    }
-
-    if (attribute.name === "colspan") {
-      props.colSpan = Number(attribute.value)
-      continue
-    }
-
-    if (attribute.name === "rowspan") {
-      props.rowSpan = Number(attribute.value)
-      continue
-    }
-
-    if (attribute.name === "width" || attribute.name === "height") {
-      props[attribute.name] = toNumericProp(attribute.value)
-      continue
-    }
-
-    props[attribute.name] = attribute.value
-  }
-
-  const existingStyle = (props.style as Record<string, string> | undefined) ?? {}
-  const hasMultipleChildren =
-    Array.from(element.childNodes).filter((child) => {
-      if (child.nodeType === Node.TEXT_NODE) {
-        return Boolean(child.textContent?.trim())
-      }
-
-      return child.nodeType === Node.ELEMENT_NODE
-    }).length > 1
-
-  if (
-    element.tagName.toLowerCase() === "div" &&
-    hasMultipleChildren &&
-    !existingStyle.display
-  ) {
-    props.style = {
-      ...existingStyle,
-      display: "flex",
-      flexDirection: "column"
-    }
-  }
-
-  const children = Array.from(element.childNodes).map((child, index) =>
-    domNodeToReact(child, `${key}-${index}`)
-  )
-
-  return React.createElement(
-    element.tagName.toLowerCase(),
-    props,
-    ...(children.length > 0 ? children : [])
-  )
-}
-
-function htmlToSatoriNode(markup: string) {
-  const doc = new DOMParser().parseFromString(markup, "text/html")
-  const root = doc.body.firstElementChild
-
-  if (!root) {
-    return React.createElement("div", null)
-  }
-
-  return domNodeToReact(root, "root") as React.ReactElement
+  return pageNode
 }
 
 export async function renderPagePngBytes(
   page: RenderPage,
   index: number,
   total: number,
-  assets: RendererAssets
+  captureRoot: HTMLDivElement
 ) {
-  const svg = await satori(htmlToSatoriNode(buildPageMarkup(page, index, total)), {
+  const pageNode = mountPageNode(page, index, total, captureRoot)
+
+  const dataUrl = await toPng(pageNode, {
+    cacheBust: true,
+    backgroundColor: PAGE_BACKGROUND,
+    pixelRatio: 2,
+    canvasWidth: PAGE_WIDTH * 2,
+    canvasHeight: PAGE_HEIGHT * 2,
     width: PAGE_WIDTH,
-    height: page.height,
-    fonts: [
-      {
-        name: "Arial Unicode MS",
-        data: assets.bodyFontBuffer,
-        weight: 400,
-        style: "normal"
-      },
-      {
-        name: "Courier New",
-        data: assets.monoFontBuffer,
-        weight: 400,
-        style: "normal"
-      }
-    ]
+    height: PAGE_HEIGHT
   })
 
-  const resvg = new Resvg(svg, {
-    background: "#f6efe6",
-    font: {
-      fontBuffers: [assets.bodyFontBytes, assets.monoFontBytes],
-      defaultFontFamily: "Arial Unicode MS",
-      monospaceFamily: "Courier New"
+  captureRoot.innerHTML = ""
+  return await dataUrlToBytes(dataUrl)
+}
+
+export function getPdfCaptureProfile(page: RenderPage): PdfCaptureProfile {
+  if (page.pageKind === "table") {
+    return {
+      pixelRatio: 1.9,
+      format: "png"
     }
+  }
+
+  return {
+    pixelRatio: 1.35,
+    quality: 0.82,
+    format: "jpeg"
+  }
+}
+
+export async function capturePageForPdf(
+  page: RenderPage,
+  index: number,
+  total: number,
+  captureRoot: HTMLDivElement,
+  profile: PdfCaptureProfile
+): Promise<PdfPageCapture> {
+  const pageNode = mountPageNode(page, index, total, captureRoot)
+
+  if (profile.format === "jpeg") {
+    const dataUrl = await toJpeg(pageNode, {
+      cacheBust: true,
+      backgroundColor: PAGE_BACKGROUND,
+      pixelRatio: profile.pixelRatio,
+      canvasWidth: PAGE_WIDTH * profile.pixelRatio,
+      canvasHeight: PAGE_HEIGHT * profile.pixelRatio,
+      width: PAGE_WIDTH,
+      height: PAGE_HEIGHT,
+      quality: profile.quality
+    })
+
+    captureRoot.innerHTML = ""
+
+    return {
+      bytes: await dataUrlToBytes(dataUrl),
+      format: profile.format,
+      width: PAGE_WIDTH,
+      height: PAGE_HEIGHT
+    }
+  }
+
+  const blob = await toBlob(pageNode, {
+    cacheBust: true,
+    backgroundColor: PAGE_BACKGROUND,
+    pixelRatio: profile.pixelRatio,
+    canvasWidth: PAGE_WIDTH * profile.pixelRatio,
+    canvasHeight: PAGE_HEIGHT * profile.pixelRatio,
+    width: PAGE_WIDTH,
+    height: PAGE_HEIGHT,
+    quality: profile.quality,
+    type: "image/png"
   })
 
-  return resvg.render().asPng()
+  captureRoot.innerHTML = ""
+
+  if (!blob) {
+    throw new Error("Failed to capture PDF page image.")
+  }
+
+  return {
+    bytes: await blobToBytes(blob),
+    format: profile.format,
+    width: PAGE_WIDTH,
+    height: PAGE_HEIGHT
+  }
 }
 
 export function canMergeIntoSinglePng(pagePngs: Uint8Array[]) {

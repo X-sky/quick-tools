@@ -1,5 +1,7 @@
 import React from "react"
 
+import "./markdown-theme.css"
+
 import { useExportRenderer } from "./use-export-renderer"
 
 export function ExportRendererTab() {
@@ -9,7 +11,9 @@ export function ExportRendererTab() {
     activeFormat,
     pngDecision,
     preflight,
+    documentRef,
     measurementRef,
+    captureRef,
     measurementWidth,
     setActiveFormat,
     setPngDecision,
@@ -52,12 +56,34 @@ export function ExportRendererTab() {
         ) : null}
       </div>
       <div
+        ref={documentRef}
+        style={{
+          position: "fixed",
+          left: "-100000px",
+          top: 0,
+          width: `${measurementWidth}px`,
+          pointerEvents: "none",
+          opacity: 0
+        }}
+      />
+      <div
         ref={measurementRef}
         style={{
           position: "fixed",
           left: "-100000px",
           top: 0,
           width: `${measurementWidth}px`,
+          pointerEvents: "none",
+          opacity: 0
+        }}
+      />
+      <div
+        ref={captureRef}
+        style={{
+          position: "fixed",
+          left: "-100000px",
+          top: 0,
+          width: "1120px",
           pointerEvents: "none",
           opacity: 0
         }}

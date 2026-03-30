@@ -1,0 +1,303 @@
+.web-export-markdown {
+  --we-text: #2d261f;
+  --we-muted: #776657;
+  --we-subtle: #a38e7b;
+  --we-link: #9d4f15;
+  --we-border: #dbcdbc;
+  --we-border-strong: #cdb79f;
+  --we-surface: #fffdf9;
+  --we-surface-muted: #f4ede3;
+  --we-surface-code: #1f1d1a;
+  --we-inline-code: #f1e7da;
+  --we-quote: #fbf6ef;
+  color: var(--we-text);
+  font-family:
+    "Georgia",
+    "Times New Roman",
+    "Noto Serif SC",
+    "Songti SC",
+    serif;
+  font-size: 26px;
+  line-height: 1.8;
+}
+
+.web-export-markdown--page {
+  min-height: 100%;
+}
+
+.web-export-markdown__header {
+  margin: 0 0 40px;
+  padding: 0 0 28px;
+  border-bottom: 1px solid var(--we-border);
+}
+
+.web-export-markdown__eyebrow {
+  margin-bottom: 12px;
+  color: var(--we-subtle);
+  font-family:
+    "SF Pro Display",
+    "Helvetica Neue",
+    "PingFang SC",
+    sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.web-export-markdown__header h1 {
+  margin: 0;
+  font-family:
+    "SF Pro Display",
+    "Helvetica Neue",
+    "PingFang SC",
+    sans-serif;
+  font-size: 58px;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+
+.web-export-markdown__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-top: 18px;
+  color: var(--we-muted);
+  font-family:
+    "SF Pro Text",
+    "Helvetica Neue",
+    "PingFang SC",
+    sans-serif;
+  font-size: 18px;
+  line-height: 1.6;
+}
+
+.web-export-markdown__excerpt {
+  margin: 18px 0 0;
+  color: #5f5246;
+  font-size: 22px;
+  line-height: 1.7;
+}
+
+.web-export-markdown__body > *:first-child {
+  margin-top: 0;
+}
+
+.web-export-markdown h1,
+.web-export-markdown h2,
+.web-export-markdown h3,
+.web-export-markdown h4,
+.web-export-markdown h5,
+.web-export-markdown h6 {
+  margin: 1.45em 0 0.55em;
+  font-family:
+    "SF Pro Display",
+    "Helvetica Neue",
+    "PingFang SC",
+    sans-serif;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.web-export-markdown h1 {
+  font-size: 50px;
+}
+
+.web-export-markdown h2 {
+  font-size: 42px;
+}
+
+.web-export-markdown h3 {
+  font-size: 36px;
+}
+
+.web-export-markdown h4 {
+  font-size: 31px;
+}
+
+.web-export-markdown h5 {
+  font-size: 27px;
+}
+
+.web-export-markdown h6 {
+  font-size: 23px;
+  color: var(--we-muted);
+}
+
+.web-export-markdown p,
+.web-export-markdown ul,
+.web-export-markdown ol,
+.web-export-markdown pre,
+.web-export-markdown blockquote,
+.web-export-markdown table,
+.web-export-markdown hr {
+  margin: 0 0 1em;
+}
+
+.web-export-markdown ul,
+.web-export-markdown ol {
+  padding-left: 1.45em;
+}
+
+.web-export-markdown li + li {
+  margin-top: 0.3em;
+}
+
+.web-export-markdown blockquote {
+  padding: 18px 22px;
+  border-left: 4px solid var(--we-border-strong);
+  background: var(--we-quote);
+  color: #564a3d;
+  border-radius: 0 16px 16px 0;
+}
+
+.web-export-markdown pre {
+  overflow: hidden;
+  padding: 20px 22px;
+  background: var(--we-surface-code);
+  color: #f7f2ec;
+  border-radius: 18px;
+  font-family:
+    "SFMono-Regular",
+    "Menlo",
+    "Monaco",
+    "Courier New",
+    monospace;
+  font-size: 18px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.web-export-markdown pre code {
+  display: block;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+
+.web-export-markdown code {
+  padding: 0.12em 0.4em;
+  background: var(--we-inline-code);
+  color: #90501f;
+  border-radius: 8px;
+  font-family:
+    "SFMono-Regular",
+    "Menlo",
+    "Monaco",
+    "Courier New",
+    monospace;
+  font-size: 0.9em;
+}
+
+.web-export-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid var(--we-border);
+  border-radius: 16px;
+  background: var(--we-surface);
+  table-layout: fixed;
+}
+
+.web-export-markdown thead {
+  display: table-header-group;
+}
+
+.web-export-markdown th,
+.web-export-markdown td {
+  padding: 14px 16px;
+  border: 1px solid var(--we-border);
+  text-align: left;
+  vertical-align: top;
+  font-size: 20px;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+.web-export-markdown th {
+  background: var(--we-surface-muted);
+  font-family:
+    "SF Pro Text",
+    "Helvetica Neue",
+    "PingFang SC",
+    sans-serif;
+  font-weight: 600;
+}
+
+.web-export-markdown__table--compact th,
+.web-export-markdown__table--compact td {
+  padding: 10px 12px;
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+.web-export-markdown__table--scaled {
+  transform-origin: top left;
+  transform: scale(0.9);
+  width: 111.111111%;
+}
+
+.web-export-markdown img {
+  display: block;
+  max-width: 100%;
+  max-height: 720px;
+  width: auto;
+  height: auto;
+  margin: 22px auto;
+  border-radius: 18px;
+  object-fit: contain;
+  box-shadow: 0 8px 24px rgba(47, 33, 21, 0.08);
+}
+
+.web-export-markdown a {
+  color: var(--we-link);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(157, 79, 21, 0.25);
+}
+
+.web-export-markdown hr {
+  border: 0;
+  border-top: 1px solid var(--we-border);
+}
+
+.web-export-markdown__image-placeholder {
+  margin: 1em 0;
+}
+
+.web-export-markdown__image-placeholder > div {
+  padding: 24px;
+  border: 1px dashed var(--we-border-strong);
+  border-radius: 18px;
+  background: var(--we-quote);
+  color: var(--we-muted);
+  text-align: center;
+}
+
+.web-export-page {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.web-export-page__content {
+  flex: 1;
+  min-height: 0;
+}
+
+.web-export-page__footer {
+  margin-top: 18px;
+  color: #907e6d;
+  font-family:
+    "SF Pro Text",
+    "Helvetica Neue",
+    "PingFang SC",
+    sans-serif;
+  font-size: 18px;
+  line-height: 1.4;
+  text-align: right;
+}
