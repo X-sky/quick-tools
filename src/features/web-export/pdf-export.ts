@@ -1,12 +1,16 @@
 import { PDFDocument } from "pdf-lib"
 
 import { PDF_PAGE_WIDTH_PT } from "./render-constants"
+import type { PdfPageCapture } from "./types"
 
-export async function buildPdfBytes(pagePngs: Uint8Array[]) {
+export async function buildPdfBytes(pageCaptures: PdfPageCapture[]) {
   const pdf = await PDFDocument.create()
 
-  for (const pngBytes of pagePngs) {
-    const embedded = await pdf.embedPng(pngBytes)
+  for (const capture of pageCaptures) {
+    const embedded =
+      capture.format === "jpeg"
+        ? await pdf.embedJpg(capture.bytes)
+        : await pdf.embedPng(capture.bytes)
     const pageWidth = PDF_PAGE_WIDTH_PT
     const pageHeight = (embedded.height * pageWidth) / embedded.width
     const page = pdf.addPage([pageWidth, pageHeight])

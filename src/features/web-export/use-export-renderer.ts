@@ -4,22 +4,24 @@ import {
   hasRuntimeContext,
   isExtensionContextInvalid
 } from "./extension-runtime"
-import { renderPagePngBytes } from "./image-export"
 import {
   buildPageFilename,
+  capturePageForPdf,
   bytesToObjectUrl,
   canMergeIntoSinglePng,
   downloadObjectUrl,
-  mergePngPages
+  getPdfCaptureProfile,
+  mergePngPages,
+  renderPagePngBytes
 } from "./image-export"
-import { buildRenderBlocks } from "./markdown-render"
-import { paginateBlocks, getPngPreflight, measureBlocks } from "./pagination"
+import { buildRenderedDocument } from "./markdown-render"
+import { getPngPreflight, paginateRenderedDocument } from "./pagination"
 import { buildPdfBytes } from "./pdf-export"
-import { getRendererAssets } from "./render-assets"
 import { CONTENT_WIDTH } from "./render-constants"
 import type {
   BackgroundMessage,
   BinaryExportFormat,
+  PdfPageCapture,
   PngDecision,
   PngPreflight,
   RenderJob
@@ -43,7 +45,9 @@ export function useExportRenderer() {
   const [activeFormat, setActiveFormat] = useState<BinaryExportFormat | null>(null)
   const [pngDecision, setPngDecision] = useState<PngDecision>(null)
   const [preflight, setPreflight] = useState<PngPreflight | null>(null)
+  const documentRef = useRef<HTMLDivElement>(null)
   const measurementRef = useRef<HTMLDivElement>(null)
+  const captureRef = useRef<HTMLDivElement>(null)
   const taskId = useMemo(
     () => new URLSearchParams(window.location.search).get("taskId"),
     []
@@ -110,7 +114,14 @@ export function useExportRenderer() {
   }, [taskId])
 
   useEffect(() => {
-    if (!taskId || !job || !measurementRef.current || !activeFormat) {
+    if (
+      !taskId ||
+      !job ||
+      !documentRef.current ||
+      !measurementRef.current ||
+      !captureRef.current ||
+      !activeFormat
+    ) {
       return
     }
 
@@ -131,15 +142,28 @@ export function useExportRenderer() {
 
     const run = async () => {
       try {
-        await updateProgress("Initializing the Markdown renderer...")
-        const assets = await getRendererAssets()
-
         await updateProgress("Preparing Markdown content...")
-        const prepared = await buildRenderBlocks(job.source)
+        const renderedDocument = await buildRenderedDocument(job.source)
+
+        if (cancelled) {
+          return
+        }
+
+        documentRef.current!.innerHTML = renderedDocument.html
+
+        const articleRoot = documentRef.current!.querySelector(
+          ".web-export-markdown"
+        ) as HTMLElement | null
+
+        if (!articleRoot) {
+          throw new Error("Failed to render Markdown document.")
+        }
 
         await updateProgress("Calculating page layout...")
-        const measuredBlocks = measureBlocks(prepared.blocks, measurementRef.current!)
-        const pages = paginateBlocks(measuredBlocks)
+        const pages = paginateRenderedDocument(
+          articleRoot,
+          measurementRef.current!
+        )
 
         if (activeFormat === "png") {
           const nextPreflight = getPngPreflight(pages)
@@ -154,16 +178,22 @@ export function useExportRenderer() {
         }
 
         await updateProgress("Rendering page images...")
-        const pagePngs: Uint8Array[] = []
-
-        for (let index = 0; index < pages.length; index += 1) {
-          await updateProgress(`Rendering page ${index + 1} of ${pages.length}...`)
-          pagePngs.push(
-            await renderPagePngBytes(pages[index], index, pages.length, assets)
-          )
-        }
 
         if (activeFormat === "png") {
+          const pagePngs: Uint8Array[] = []
+
+          for (let index = 0; index < pages.length; index += 1) {
+            await updateProgress(`Rendering page ${index + 1} of ${pages.length}...`)
+            pagePngs.push(
+              await renderPagePngBytes(
+                pages[index],
+                index,
+                pages.length,
+                captureRef.current!
+              )
+            )
+          }
+
           await updateProgress("Preparing PNG download...")
 
           const shouldMerge =
@@ -178,7 +208,7 @@ export function useExportRenderer() {
             )
 
             const summary =
-              prepared.imageFailures > 0
+              renderedDocument.imageFailures > 0
                 ? "PNG 已开始下载，部分图片未成功嵌入。"
                 : "PNG 已开始下载。"
 
@@ -199,7 +229,7 @@ export function useExportRenderer() {
             }
 
             const summary =
-              prepared.imageFailures > 0
+              renderedDocument.imageFailures > 0
                 ? "PNG 已分页下载，部分图片未成功嵌入。"
                 : "PNG 已分页下载。"
 
@@ -212,8 +242,30 @@ export function useExportRenderer() {
             })
           }
         } else {
+          const pageCaptures: PdfPageCapture[] = []
+
+          for (let index = 0; index < pages.length; index += 1) {
+            const page = pages[index]
+            const profile = getPdfCaptureProfile(page)
+            const detail =
+              page.pageKind === "table"
+                ? "Rendering table page"
+                : "Rendering page"
+
+            await updateProgress(`${detail} ${index + 1} of ${pages.length}...`)
+            pageCaptures.push(
+              await capturePageForPdf(
+                page,
+                index,
+                pages.length,
+                captureRef.current!,
+                profile
+              )
+            )
+          }
+
           await updateProgress("Generating the PDF file...")
-          const pdfBytes = await buildPdfBytes(pagePngs)
+          const pdfBytes = await buildPdfBytes(pageCaptures)
           const pdfUrl = bytesToObjectUrl(pdfBytes, "application/pdf")
           await downloadObjectUrl(
             pdfUrl,
@@ -221,7 +273,7 @@ export function useExportRenderer() {
           )
 
           const summary =
-            prepared.imageFailures > 0
+            renderedDocument.imageFailures > 0
               ? "PDF 已开始下载，部分图片未成功嵌入。"
               : "PDF 已开始下载。"
 
@@ -268,7 +320,9 @@ export function useExportRenderer() {
     activeFormat,
     pngDecision,
     preflight,
+    documentRef,
     measurementRef,
+    captureRef,
     measurementWidth: CONTENT_WIDTH,
     setActiveFormat,
     setPngDecision,

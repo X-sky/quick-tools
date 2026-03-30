@@ -44,8 +44,32 @@ export type RenderBlock = {
   height: number
 }
 
+export type RenderedDocument = {
+  html: string
+  imageFailures: number
+}
+
+export type ImageAssetState = "inlined" | "placeholder"
+export type PdfCaptureFormat = "jpeg" | "png"
+
+export type PdfCaptureProfile = {
+  pixelRatio: number
+  quality?: number
+  format: PdfCaptureFormat
+}
+
 export type RenderPage = {
   html: string
+  height: number
+  pageKind: "default" | "table"
+}
+
+export type PaginatedDomPage = RenderPage
+
+export type PdfPageCapture = {
+  bytes: Uint8Array
+  format: PdfCaptureFormat
+  width: number
   height: number
 }
 
