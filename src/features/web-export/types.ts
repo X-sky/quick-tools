@@ -1,4 +1,6 @@
 export type ExportFormat = "markdown" | "pdf" | "png"
+export type BinaryExportFormat = Exclude<ExportFormat, "markdown">
+export type PngDecision = "single" | "paged" | "pdf" | null
 
 export interface MarkdownExportSource {
   title: string
@@ -13,7 +15,7 @@ export interface MarkdownExportSource {
 export interface RenderJob {
   source: MarkdownExportSource
   filenameBase: string
-  format: Exclude<ExportFormat, "markdown">
+  format: BinaryExportFormat
   imageMode: "single_preferred"
 }
 
@@ -31,8 +33,32 @@ export type BackgroundMessage =
   | {
       type: "render-job-complete"
       taskId: string
-      format: Exclude<ExportFormat, "markdown">
+      format: BinaryExportFormat
       title?: string
       summaryMessage?: string
     }
   | { type: "render-job-error"; taskId: string; error: string }
+
+export type RenderBlock = {
+  html: string
+  height: number
+}
+
+export type RenderPage = {
+  html: string
+  height: number
+}
+
+export type PngPreflight = {
+  shouldPrompt: boolean
+  mergedWidth: number
+  mergedHeight: number
+  mergedBytes: number
+}
+
+export type RendererAssets = {
+  bodyFontBytes: Uint8Array
+  monoFontBytes: Uint8Array
+  bodyFontBuffer: ArrayBuffer
+  monoFontBuffer: ArrayBuffer
+}
