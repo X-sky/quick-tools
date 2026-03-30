@@ -1,6 +1,14 @@
 import type { MarkdownExportSource } from "./types"
 
 export function extractArticleInPage(): MarkdownExportSource {
+  const escapeHtml = (value: string) =>
+    value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;")
+
   const getTextLength = (element: Element | null) =>
     element?.textContent?.replace(/\s+/g, " ").trim().length ?? 0
 
@@ -65,6 +73,14 @@ export function extractArticleInPage(): MarkdownExportSource {
   const normalizeInlineText = (value: string) =>
     value.replace(/\s+/g, " ").trim()
 
+  const absolutizeUrl = (url: string) => {
+    try {
+      return new URL(url, location.href).href
+    } catch {
+      return url
+    }
+  }
+
   const serializeInline = (node: Node): string => {
     if (node.nodeType === Node.TEXT_NODE) {
       return normalizeInlineText(node.textContent || "")
@@ -111,10 +127,75 @@ export function extractArticleInPage(): MarkdownExportSource {
     if (tag === "img") {
       const src = element.getAttribute("src")?.trim()
       const alt = element.getAttribute("alt")?.trim() || "image"
-      return src ? `![${alt}](${src})` : ""
+      return src
+        ? `<img src="${escapeHtml(absolutizeUrl(src))}" alt="${escapeHtml(
+            alt
+          )}" />`
+        : ""
     }
 
     return children
+  }
+
+  const serializeTableCell = (cell: HTMLElement, tag: "th" | "td") => {
+    const attrs = [
+      cell.getAttribute("colspan") ? ` colspan="${cell.getAttribute("colspan")}"` : "",
+      cell.getAttribute("rowspan") ? ` rowspan="${cell.getAttribute("rowspan")}"` : ""
+    ].join("")
+
+    const content =
+      Array.from(cell.childNodes)
+        .map((child) => serializeInline(child))
+        .join(" ")
+        .replace(/\s+\n/g, "\n")
+        .replace(/\s+/g, " ")
+        .trim() || "&nbsp;"
+
+    return `<${tag}${attrs}>${content}</${tag}>`
+  }
+
+  const serializeTable = (table: HTMLElement) => {
+    const rows = Array.from(table.querySelectorAll("tr"))
+
+    if (rows.length === 0) {
+      return ""
+    }
+
+    const theadRows = Array.from(table.querySelectorAll("thead tr"))
+    const tbodyRows = Array.from(table.querySelectorAll("tbody tr"))
+    const looseRows =
+      theadRows.length === 0 && tbodyRows.length === 0 ? rows : []
+
+    const serializeRow = (row: HTMLTableRowElement) => {
+      const cells = Array.from(row.children)
+        .filter(
+          (child): child is HTMLElement =>
+            child instanceof HTMLElement &&
+            /^(th|td)$/i.test(child.tagName.toLowerCase())
+        )
+        .map((cell) =>
+          serializeTableCell(
+            cell,
+            cell.tagName.toLowerCase() === "th" ? "th" : "td"
+          )
+        )
+        .join("")
+
+      return cells ? `<tr>${cells}</tr>` : ""
+    }
+
+    const theadHtml =
+      theadRows.length > 0
+        ? `<thead>${theadRows.map((row) => serializeRow(row)).join("")}</thead>`
+        : ""
+
+    const tbodySource = tbodyRows.length > 0 ? tbodyRows : looseRows
+    const tbodyHtml =
+      tbodySource.length > 0
+        ? `<tbody>${tbodySource.map((row) => serializeRow(row)).join("")}</tbody>`
+        : ""
+
+    return `<table>${theadHtml}${tbodyHtml}</table>`
   }
 
   const serializeListItem = (item: HTMLElement, ordered: boolean, index: number) => {
@@ -224,6 +305,10 @@ export function extractArticleInPage(): MarkdownExportSource {
 
     if (tag === "img") {
       return serializeInline(element)
+    }
+
+    if (tag === "table") {
+      return serializeTable(element)
     }
 
     if (tag === "hr") {

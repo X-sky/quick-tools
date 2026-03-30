@@ -138,10 +138,57 @@
 .web-export-markdown ul,
 .web-export-markdown ol {
   padding-left: 1.45em;
+  list-style-position: outside;
+}
+
+.web-export-markdown ul {
+  list-style-type: disc;
+}
+
+.web-export-markdown ul ul {
+  list-style-type: circle;
+}
+
+.web-export-markdown ul ul ul {
+  list-style-type: square;
+}
+
+.web-export-markdown ol {
+  list-style-type: decimal;
+}
+
+.web-export-markdown ol ol {
+  list-style-type: lower-alpha;
+}
+
+.web-export-markdown ol ol ol {
+  list-style-type: lower-roman;
+}
+
+.web-export-markdown li {
+  display: list-item;
+  padding-left: 0.1em;
 }
 
 .web-export-markdown li + li {
   margin-top: 0.3em;
+}
+
+.web-export-markdown li > p,
+.web-export-markdown li > ul,
+.web-export-markdown li > ol {
+  margin-top: 0.35em;
+}
+
+.web-export-markdown li::marker {
+  color: #6b5848;
+  font-family:
+    "SF Pro Text",
+    "Helvetica Neue",
+    "PingFang SC",
+    sans-serif;
+  font-size: 0.92em;
+  font-weight: 600;
 }
 
 .web-export-markdown blockquote {
@@ -200,7 +247,7 @@
   border: 1px solid var(--we-border);
   border-radius: 16px;
   background: var(--we-surface);
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 .web-export-markdown thead {
@@ -216,6 +263,7 @@
   font-size: 20px;
   line-height: 1.65;
   word-break: break-word;
+  white-space: normal;
 }
 
 .web-export-markdown th {
@@ -236,9 +284,7 @@
 }
 
 .web-export-markdown__table--scaled {
-  transform-origin: top left;
-  transform: scale(0.9);
-  width: 111.111111%;
+  font-size: 0.92em;
 }
 
 .web-export-markdown img {
