@@ -1,2 +1,3 @@
 - [ ] Implement a GitHub-like diff algorithm (not just line-by-line), supporting structured, block-level changes and optimal human-readable diff display
 - [ ] Add a template type creation mode to the QR code feature
+- [ ] Fix Error: `Unchecked runtime.lastError: Cannot create item with duplicate id web-export:root` or `Unchecked runtime.lastError: Cannot create item with duplicate id web-export:markdown` (can not reproduce)
