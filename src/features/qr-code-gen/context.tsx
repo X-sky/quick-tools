@@ -10,7 +10,11 @@ import {
 } from "react"
 
 import type { HistoryItem } from "./types"
-import { generateId } from "./utils"
+import {
+  exportHistoryToFile,
+  importHistoryFromFile,
+  mergeHistory
+} from "./utils"
 
 interface QrCodeContextType {
   text: string
@@ -24,11 +28,15 @@ interface QrCodeContextType {
   confirmInput: () => void
   editInput: () => void
   selectHistory: (item: HistoryItem) => void
-  deleteHistory: (id: string) => void
-  addTagToItem: (id: string, tag: string) => void
-  removeTagFromItem: (id: string, tag: string) => void
+  deleteHistory: (content: string) => void
+  addTagToItem: (content: string, tag: string) => void
+  removeTagFromItem: (content: string, tag: string) => void
   setSelectedTag: (tag: string | null) => void
   currentEditingItem: HistoryItem | null
+  exportHistory: () => void
+  importHistory: (
+    file: File
+  ) => Promise<{ added: number; merged: number; error?: string }>
 }
 
 const QrCodeContext = createContext<QrCodeContextType | null>(null)
@@ -85,7 +93,6 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
       const tagsToKeep = currentEditingItem?.tags || []
       return [
         {
-          id: generateId(),
           content: text,
           timestamp: Date.now(),
           tags: tagsToKeep
@@ -111,14 +118,13 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const deleteHistory = useCallback(
-    (id: string) => {
+    (content: string) => {
       setHistory((prev) => {
-        const newHistory = prev.filter((item) => item.id !== id)
+        const newHistory = prev.filter((item) => item.content !== content)
 
         if (newHistory.length > 0) {
           setText(newHistory[0].content)
           setIsConfirmed(true)
-          // 删除后，将第一项设置为当前编辑项
           setCurrentEditingItem(newHistory[0])
         } else {
           setText("")
@@ -130,32 +136,57 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
       })
 
       // 如果删除的是当前正在编辑的项，清除引用
-      if (currentEditingItem?.id === id) {
+      if (currentEditingItem?.content === content) {
         setCurrentEditingItem(null)
       }
     },
     [currentEditingItem]
   )
 
-  const addTagToItem = useCallback((id: string, tag: string) => {
+  const addTagToItem = useCallback((content: string, tag: string) => {
     setHistory((prev) =>
       prev.map((item) =>
-        item.id === id
+        item.content === content
           ? { ...item, tags: [...new Set([...(item.tags || []), tag])] }
           : item
       )
     )
   }, [])
 
-  const removeTagFromItem = useCallback((id: string, tag: string) => {
+  const removeTagFromItem = useCallback((content: string, tag: string) => {
     setHistory((prev) =>
       prev.map((item) =>
-        item.id === id
+        item.content === content
           ? { ...item, tags: (item.tags || []).filter((t) => t !== tag) }
           : item
       )
     )
   }, [])
+
+  const exportHistory = useCallback(() => {
+    if (history.length === 0) return
+    exportHistoryToFile(history)
+  }, [history])
+
+  const importHistory = useCallback(
+    async (file: File) => {
+      const result = await importHistoryFromFile(file)
+      if (result.error || result.imported.length === 0) {
+        return { added: 0, merged: 0, error: result.error }
+      }
+
+      const existingContents = new Set(history.map((i) => i.content))
+      const merged = mergeHistory(history, result.imported)
+      setHistory(merged)
+
+      const added = result.imported.filter(
+        (i) => !existingContents.has(i.content)
+      ).length
+      const mergedCount = result.imported.length - added
+      return { added, merged: mergedCount }
+    },
+    [history]
+  )
 
   const value = {
     text,
@@ -173,7 +204,9 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
     addTagToItem,
     removeTagFromItem,
     setSelectedTag,
-    currentEditingItem
+    currentEditingItem,
+    exportHistory,
+    importHistory
   }
 
   return (
