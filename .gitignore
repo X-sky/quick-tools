@@ -1,22 +1,25 @@
-
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# IDE / editor
 .vscode/
 .cursor/
-.kiro/
+.idea/
+
 # dependencies
-/node_modules
+node_modules/
 /.pnp
 .pnp.js
 
 # testing
-/coverage
+coverage/
 
-#cache
-.turbo
+# cache
+.turbo/
 
 # misc
 .DS_Store
 *.pem
+Thumbs.db
 
 # debug
 npm-debug.log*
@@ -27,15 +30,27 @@ yarn-error.log*
 # local env files
 .env*
 
+# build outputs — monorepo
+packages/*/dist/
+apps/*/dist/
+apps/extension/build/
 out/
-build/
-dist/
 
-# plasmo - https://www.plasmo.com
-.plasmo
+# plasmo (extension)
+.plasmo/
+apps/extension/.plasmo/
+
+# tauri (desktop)
+apps/desktop/src-tauri/target/
+
+# pnpm store (local)
+.pnpm-store/
 
 # bpp - http://bpp.browser.market/
 keys.json
 
 # typescript
-.tsbuildinfo
+*.tsbuildinfo
+
+# vitest
+*.vitest.timestamp*
