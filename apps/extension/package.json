@@ -1,0 +1,68 @@
+{
+  "name": "@quick-tools/extension",
+  "displayName": "Quick tools",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Quick tools for anything",
+  "author": "x-sky",
+  "scripts": {
+    "dev": "cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 plasmo dev",
+    "build": "cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 plasmo build",
+    "package": "cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 plasmo package"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.0",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/language": "^6.11.3",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/theme-one-dark": "^6.1.3",
+    "@codemirror/view": "^6.38.8",
+    "@mozilla/readability": "^0.6.0",
+    "@quick-tools/json-formatter": "workspace:*",
+    "@quick-tools/platform": "workspace:*",
+    "@quick-tools/qr-code-gen": "workspace:*",
+    "@quick-tools/web-export": "workspace:*",
+    "@resvg/resvg-wasm": "^2.6.2",
+    "@uiw/react-codemirror": "^4.25.3",
+    "fast-png": "^8.0.0",
+    "html-to-image": "^1.11.13",
+    "jspdf": "^4.2.1",
+    "marked": "^17.0.5",
+    "pdf-lib": "^1.17.1",
+    "plasmo": "0.90.5",
+    "qrcode.react": "^4.2.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "satori": "^0.26.0",
+    "satori-html": "^0.3.2",
+    "turndown": "^7.2.2",
+    "ultrahtml": "^1.6.0"
+  },
+  "devDependencies": {
+    "@parcel/optimizer-data-url": "2.9.3",
+    "@parcel/transformer-inline-string": "2.9.3",
+    "@types/chrome": "0.0.258",
+    "@types/node": "20.11.5",
+    "@types/react": "18.2.48",
+    "@types/react-dom": "18.2.18",
+    "cross-env": "^7.0.3",
+    "postcss": "8.4.33",
+    "tailwindcss": "3.4.1"
+  },
+  "manifest": {
+    "host_permissions": [
+      "http://*/*",
+      "https://*/*"
+    ],
+    "content_security_policy": {
+      "extension_pages": "script-src 'self' 'wasm-unsafe-eval' http://localhost; object-src 'self';"
+    },
+    "permissions": [
+      "contextMenus",
+      "downloads",
+      "scripting",
+      "storage",
+      "tabs"
+    ]
+  }
+}
