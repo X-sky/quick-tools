@@ -5,3 +5,4 @@ export {
   parseHistoryImport
 } from "./history"
 export { isValidHistoryItem } from "./validation"
+export * from "./template"

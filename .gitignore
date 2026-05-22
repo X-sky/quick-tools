@@ -4,6 +4,10 @@
 .vscode/
 .cursor/
 .idea/
+.kiro/
+
+# playwright
+.playwright-cli/
 
 # dependencies
 node_modules/

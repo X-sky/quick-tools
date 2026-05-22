@@ -1,11 +1,15 @@
-import type { PlaceholderValueEntry, Result, TemplateStore } from "./types"
+import type { TemplateStore } from "@quick-tools/qr-code-gen"
+
+export {
+  createEmptyStore,
+  addValue,
+  deleteValue,
+  reorderValues,
+  setDefaultValue
+} from "@quick-tools/qr-code-gen"
 
 const STORAGE_KEY = "qrcode-template-store"
 const BACKUP_KEY = "qrcode-template-store.bak"
-
-export function createEmptyStore(): TemplateStore {
-  return { templates: [], placeholderValues: [], combinationTags: [] }
-}
 
 function isValidStoreShape(data: unknown): data is TemplateStore {
   if (typeof data !== "object" || data === null) return false
@@ -19,7 +23,7 @@ function isValidStoreShape(data: unknown): data is TemplateStore {
 
 export function loadStore(): TemplateStore {
   const raw = localStorage.getItem(STORAGE_KEY)
-  if (raw === null) return createEmptyStore()
+  if (raw === null) return { templates: [], placeholderValues: [], combinationTags: [] }
 
   try {
     const parsed = JSON.parse(raw)
@@ -29,119 +33,14 @@ export function loadStore(): TemplateStore {
       "[qr-template-store] Stored value has invalid shape, resetting"
     )
     localStorage.setItem(BACKUP_KEY, raw)
-    return createEmptyStore()
+    return { templates: [], placeholderValues: [], combinationTags: [] }
   } catch (e) {
     console.error("[qr-template-store] Failed to parse stored JSON:", e)
     localStorage.setItem(BACKUP_KEY, raw)
-    return createEmptyStore()
+    return { templates: [], placeholderValues: [], combinationTags: [] }
   }
 }
 
 export function saveStore(store: TemplateStore): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(store))
-}
-
-export function addValue(
-  store: TemplateStore,
-  templateId: string,
-  placeholderName: string,
-  value: string
-): Result<TemplateStore> {
-  if (value.trim() === "") {
-    return { ok: false, error: "候选值不能为空" }
-  }
-
-  const idx = store.placeholderValues.findIndex(
-    (e) => e.templateId === templateId && e.placeholderName === placeholderName
-  )
-
-  if (idx !== -1) {
-    const entry = store.placeholderValues[idx]
-    if (entry.values.includes(value)) {
-      return { ok: true, value: store }
-    }
-    const updatedEntry: PlaceholderValueEntry = {
-      ...entry,
-      values: [...entry.values, value]
-    }
-    const updatedValues = [...store.placeholderValues]
-    updatedValues[idx] = updatedEntry
-    return { ok: true, value: { ...store, placeholderValues: updatedValues } }
-  }
-
-  const newEntry: PlaceholderValueEntry = {
-    templateId,
-    placeholderName,
-    values: [value]
-  }
-  return {
-    ok: true,
-    value: { ...store, placeholderValues: [...store.placeholderValues, newEntry] }
-  }
-}
-
-export function deleteValue(
-  store: TemplateStore,
-  templateId: string,
-  placeholderName: string,
-  value: string
-): TemplateStore {
-  const idx = store.placeholderValues.findIndex(
-    (e) => e.templateId === templateId && e.placeholderName === placeholderName
-  )
-
-  if (idx === -1) return store
-
-  const entry = store.placeholderValues[idx]
-  const updatedEntry: PlaceholderValueEntry = {
-    ...entry,
-    values: entry.values.filter((v) => v !== value)
-  }
-  const updatedValues = [...store.placeholderValues]
-  updatedValues[idx] = updatedEntry
-  return { ...store, placeholderValues: updatedValues }
-}
-
-export function reorderValues(
-  store: TemplateStore,
-  templateId: string,
-  placeholderName: string,
-  values: string[]
-): TemplateStore {
-  const idx = store.placeholderValues.findIndex(
-    (e) => e.templateId === templateId && e.placeholderName === placeholderName
-  )
-
-  if (idx === -1) return store
-
-  const entry = store.placeholderValues[idx]
-  const updatedEntry: PlaceholderValueEntry = {
-    ...entry,
-    values
-  }
-  const updatedValues = [...store.placeholderValues]
-  updatedValues[idx] = updatedEntry
-  return { ...store, placeholderValues: updatedValues }
-}
-
-export function setDefaultValue(
-  store: TemplateStore,
-  templateId: string,
-  placeholderName: string,
-  defaultValue: string | undefined
-): TemplateStore {
-  const idx = store.placeholderValues.findIndex(
-    (e) => e.templateId === templateId && e.placeholderName === placeholderName
-  )
-
-  if (idx === -1) return store
-
-  const entry = store.placeholderValues[idx]
-  const updatedEntry: PlaceholderValueEntry = {
-    ...entry,
-    defaultValue
-  }
-  const updatedValues = [...store.placeholderValues]
-  updatedValues[idx] = updatedEntry
-  return { ...store, placeholderValues: updatedValues }
 }
