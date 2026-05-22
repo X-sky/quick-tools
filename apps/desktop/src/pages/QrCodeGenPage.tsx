@@ -6,20 +6,19 @@ import type { HistoryItem } from "@quick-tools/qr-code-gen"
 import { HistoryPanel } from "~/components/HistoryPanel"
 import { QrRenderer } from "~/components/QrRenderer"
 import { Toast } from "~/components/Toast"
+import { TemplateMode } from "~/components/template"
 import { useHistory } from "~/hooks/useHistory"
 import { useToast } from "~/hooks/useToast"
 import { calculateQrCapacity } from "~/lib/qr-capacity"
 
 export default function QrCodeGenPage() {
-  // Mode: free input or template
+  // Mode: free input or template (defaults to Free_Mode on page load)
   const [mode, setMode] = useState<"free" | "template">("free")
 
-  // Free mode state
+  // Free mode state (preserved across mode switches)
   const [content, setContent] = useState("")
   const [size, setSize] = useState<128 | 256 | 512>(256)
   const [level, setLevel] = useState<"L" | "M" | "Q" | "H">("M")
-
-  // Mode toggle (no batch mode)
 
   // History
   const { items: historyItems, add: addHistory, remove: removeHistory, search: searchHistory } =
@@ -203,85 +202,75 @@ export default function QrCodeGenPage() {
           </div>
         </div>
 
-        {mode === "template" ? (
-          /* Template Mode - placeholder for now */
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-stone-200 bg-stone-50 p-8 dark:border-stone-700 dark:bg-stone-900/50">
-            <span className="text-3xl">🧩</span>
-            <p className="text-sm font-medium text-stone-600 dark:text-stone-400">
-              模板模式
-            </p>
-            <p className="text-center text-xs text-stone-400 dark:text-stone-500">
-              使用模板快速生成带占位符的二维码。
-              <br />
-              支持创建模板、管理候选值、组合标签等功能。
-              <br />
-              <span className="mt-2 inline-block text-rose-400">即将上线</span>
-            </p>
+        <div
+          className="flex flex-1 flex-col gap-4"
+          style={{ display: mode === "free" ? "flex" : "none" }}>
+          {/* Settings Row */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-stone-500 dark:text-stone-400">尺寸</label>
+              <select
+                value={size}
+                onChange={(e) => setSize(Number(e.target.value) as 128 | 256 | 512)}
+                className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-sm text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300">
+                <option value={128}>128px</option>
+                <option value={256}>256px</option>
+                <option value={512}>512px</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-stone-500 dark:text-stone-400">纠错</label>
+              <select
+                value={level}
+                onChange={(e) => setLevel(e.target.value as "L" | "M" | "Q" | "H")}
+                className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-sm text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300">
+                <option value="L">L (7%)</option>
+                <option value="M">M (15%)</option>
+                <option value="Q">Q (25%)</option>
+                <option value="H">H (30%)</option>
+              </select>
+            </div>
           </div>
-        ) : (
-          /* Free Mode */
-          <>
-            {/* Settings Row */}
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-stone-500 dark:text-stone-400">尺寸</label>
-                <select
-                  value={size}
-                  onChange={(e) => setSize(Number(e.target.value) as 128 | 256 | 512)}
-                  className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-sm text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300">
-                  <option value={128}>128px</option>
-                  <option value={256}>256px</option>
-                  <option value={512}>512px</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-stone-500 dark:text-stone-400">纠错</label>
-                <select
-                  value={level}
-                  onChange={(e) => setLevel(e.target.value as "L" | "M" | "Q" | "H")}
-                  className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-sm text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300">
-                  <option value="L">L (7%)</option>
-                  <option value="M">M (15%)</option>
-                  <option value="Q">Q (25%)</option>
-                  <option value="H">H (30%)</option>
-                </select>
-              </div>
+
+          <div className="flex flex-1 flex-col gap-4">
+            {/* Content Input */}
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="输入要生成二维码的内容..."
+              rows={4}
+              className="input-field resize-none"
+            />
+
+            {/* Generate Button */}
+            <button
+              onClick={handleGenerate}
+              disabled={!content.trim()}
+              className="btn-primary w-full justify-center disabled:cursor-not-allowed disabled:opacity-50">
+              生成二维码
+            </button>
+
+            {/* QR Code Display */}
+            <div ref={svgContainerRef} className="flex flex-1 items-center justify-center">
+              {content.trim() && (
+                <QrRenderer
+                  content={content}
+                  size={size}
+                  level={level}
+                  onExportPng={handleExportPng}
+                  onExportSvg={handleExportSvg}
+                  onCopyToClipboard={handleCopyToClipboard}
+                />
+              )}
             </div>
+          </div>
+        </div>
 
-            <div className="flex flex-1 flex-col gap-4">
-              {/* Content Input */}
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="输入要生成二维码的内容..."
-                rows={4}
-                className="input-field resize-none"
-              />
-
-              {/* Generate Button */}
-              <button
-                onClick={handleGenerate}
-                disabled={!content.trim()}
-                className="btn-primary w-full justify-center disabled:cursor-not-allowed disabled:opacity-50">
-                生成二维码
-              </button>
-
-              {/* QR Code Display */}
-              <div ref={svgContainerRef} className="flex flex-1 items-center justify-center">
-                {content.trim() && (
-                  <QrRenderer
-                    content={content}
-                    size={size}
-                    level={level}
-                    onExportPng={handleExportPng}
-                    onExportSvg={handleExportSvg}
-                    onCopyToClipboard={handleCopyToClipboard}
-                  />
-                )}
-              </div>
-            </div>
-          </>
-        )}
+        <div
+          className="flex flex-1 flex-col min-h-0"
+          style={{ display: mode === "template" ? "flex" : "none" }}>
+          <TemplateMode showToast={showToast} />
+        </div>
       </div>
 
       {/* Right Panel - History Sidebar */}
