@@ -13,6 +13,7 @@
     "dev": "turbo dev",
     "dev:extension": "pnpm --filter @quick-tools/extension dev",
     "dev:desktop": "pnpm --filter @quick-tools/desktop dev",
+    "dev:tauri": "pnpm --filter @quick-tools/desktop dev:tauri",
     "build:extension": "pnpm --filter @quick-tools/extension build",
     "build:desktop": "pnpm --filter @quick-tools/desktop build"
   },

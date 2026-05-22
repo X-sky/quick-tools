@@ -7,6 +7,8 @@ import { createErrorResult, createSuccess } from "@quick-tools/platform"
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http"
 import { Readability } from "@mozilla/readability"
 
+import { createTurndownService } from "~/lib/turndown-config"
+
 const DEFAULT_TIMEOUT_MS = 30_000
 
 function parseHtmlToDocument(html: string, url: string): Document {
@@ -62,13 +64,16 @@ export const tauriContentExtractor: ContentExtractor = {
         )
       }
 
+      const turndown = createTurndownService()
+      const markdown = turndown.turndown(article.content || "")
+
       return createSuccess({
         title: article.title || doc.title || url,
         url,
         byline: article.byline || undefined,
         excerpt: article.excerpt || undefined,
         capturedAt: new Date().toISOString(),
-        markdown: article.textContent || "",
+        markdown,
         plainText: article.textContent || ""
       })
     } catch (err) {
