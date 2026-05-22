@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client"
 
 import { initTauriPlatform } from "./platform"
 import App from "./App"
+import "./index.css"
 
 initTauriPlatform()
 
