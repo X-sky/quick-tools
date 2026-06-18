@@ -57,7 +57,7 @@ export function DiffViewer({ left, right }: DiffViewerProps) {
       mergeView.destroy()
       mergeViewRef.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line
   }, [])
 
   // Update documents when props change

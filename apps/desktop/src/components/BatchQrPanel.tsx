@@ -26,7 +26,7 @@ interface ExportProgress {
 function sanitizeFilename(content: string): string {
   return content
     .slice(0, 20)
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_") /* eslint-disable-line no-control-regex */
     .replace(/\s+/g, "_")
 }
 

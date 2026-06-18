@@ -8,18 +8,33 @@ import {
 import { getPlatform } from "@quick-tools/platform"
 import type { Diagnostic } from "@codemirror/lint"
 import { readTextFile } from "@tauri-apps/plugin-fs"
+import {
+  BracketsCurly,
+  ArrowsInLineHorizontal,
+  GitDiff,
+  FolderOpen,
+  FloppyDisk,
+  Copy,
+  ClipboardText
+} from "@phosphor-icons/react"
 
 import { CodeMirrorEditor } from "~/components/CodeMirrorEditor"
 import { DiffViewer } from "~/components/DiffViewer"
 import { ResizableSplitPane } from "~/components/ResizableSplitPane"
 import { Toast } from "~/components/Toast"
+import type { CommandAction } from "~/components/shell/CommandBar"
 import { useDebounce } from "~/hooks/useDebounce"
 import { useToast } from "~/hooks/useToast"
 import { openJsonFile } from "~/platform/file-opener"
+import type { PageShellProps } from "~/types/page-shell"
 
 type EditorMode = "format" | "diff"
 
-export default function JsonFormatterPage() {
+export default function JsonFormatterPage({
+  onActionsChange,
+  onStatusChange,
+  onToast
+}: PageShellProps = {}) {
   const [mode, setMode] = useState<EditorMode>("format")
   const [input, setInput] = useState("")
   const [output, setOutput] = useState("")
@@ -32,6 +47,21 @@ export default function JsonFormatterPage() {
   const containerRef = useRef<HTMLDivElement>(null)
 
   const debouncedInput = useDebounce(input, 300)
+
+  // Unified notify: prefer shell toast, fall back to local toast.
+  const notify = useCallback(
+    (
+      message: string,
+      type: "success" | "error" | "warning" | "info"
+    ) => {
+      if (onToast) {
+        onToast({ type, title: message })
+      } else {
+        showToast(message, type === "warning" ? "info" : type)
+      }
+    },
+    [onToast, showToast]
+  )
 
   // Auto-format on debounced input change
   useEffect(() => {
@@ -97,10 +127,13 @@ export default function JsonFormatterPage() {
       const formatted = formatJson(parsed)
       setOutput(formatted)
       setError(null)
+      notify("Formatted successfully", "success")
     } catch (e) {
-      setError(e instanceof Error ? e.message : "格式化失败")
+      const msg = e instanceof Error ? e.message : "格式化失败"
+      setError(msg)
+      notify(msg, "error")
     }
-  }, [input])
+  }, [input, notify])
 
   // Minify action
   const handleMinify = useCallback(() => {
@@ -110,21 +143,25 @@ export default function JsonFormatterPage() {
       const minified = minifyJson(parsed)
       setOutput(minified)
       setError(null)
+      notify("Minified successfully", "success")
     } catch (e) {
-      setError(e instanceof Error ? e.message : "压缩失败")
+      const msg = e instanceof Error ? e.message : "压缩失败"
+      setError(msg)
+      notify(msg, "error")
     }
-  }, [input])
+  }, [input, notify])
 
   // Toggle diff mode
   const handleToggleDiff = useCallback(() => {
-    if (mode === "format") {
-      setMode("diff")
-      setDiffLeft(input)
-      setDiffRight(output)
-    } else {
-      setMode("format")
-    }
-  }, [mode, input, output])
+    setMode((prev) => {
+      if (prev === "format") {
+        setDiffLeft(input)
+        setDiffRight(output)
+        return "diff"
+      }
+      return "format"
+    })
+  }, [input, output])
 
   // Open file
   const handleOpenFile = useCallback(async () => {
@@ -132,17 +169,17 @@ export default function JsonFormatterPage() {
     if (result.ok) {
       setInput(result.value)
       setFilePath(null)
-      showToast("文件已加载", "success")
+      notify("文件已加载", "success")
     } else if (result.error.category !== "cancelled") {
-      showToast(result.error.message, "error")
+      notify(result.error.message, "error")
     }
-  }, [showToast])
+  }, [notify])
 
   // Save file
   const handleSaveFile = useCallback(async () => {
     const content = output || input
     if (!content.trim()) {
-      showToast("没有可保存的内容", "info")
+      notify("没有可保存的内容", "info")
       return
     }
     const platform = getPlatform()
@@ -152,27 +189,27 @@ export default function JsonFormatterPage() {
       "application/json"
     )
     if (result.ok) {
-      showToast("文件已保存", "success")
+      notify("文件已保存", "success")
     } else if (result.error.category !== "cancelled") {
-      showToast(result.error.message, "error")
+      notify(result.error.message, "error")
     }
-  }, [output, input, showToast])
+  }, [output, input, notify])
 
   // Copy result
   const handleCopyResult = useCallback(async () => {
     const content = output || input
     if (!content.trim()) {
-      showToast("没有可复制的内容", "info")
+      notify("没有可复制的内容", "info")
       return
     }
     const platform = getPlatform()
     const result = await platform.clipboard.writeText(content)
     if (result.ok) {
-      showToast("已复制到剪贴板", "success")
+      notify("已复制到剪贴板", "success")
     } else {
-      showToast("剪贴板写入失败", "error")
+      notify("剪贴板写入失败", "error")
     }
-  }, [output, input, showToast])
+  }, [output, input, notify])
 
   // Paste from clipboard
   const handlePasteFromClipboard = useCallback(async () => {
@@ -180,14 +217,14 @@ export default function JsonFormatterPage() {
       const text = await navigator.clipboard.readText()
       if (text) {
         setInput(text)
-        showToast("已从剪贴板粘贴", "success")
+        notify("已从剪贴板粘贴", "success")
       } else {
-        showToast("剪贴板为空", "info")
+        notify("剪贴板为空", "info")
       }
     } catch {
-      showToast("读取剪贴板失败", "error")
+      notify("读取剪贴板失败", "error")
     }
-  }, [showToast])
+  }, [notify])
 
   // Ctrl+S / Cmd+S shortcut
   useEffect(() => {
@@ -229,9 +266,9 @@ export default function JsonFormatterPage() {
           const content = await readTextFile(path)
           setInput(content)
           setFilePath(path)
-          showToast("文件已加载", "success")
+          notify("文件已加载", "success")
         } catch {
-          showToast("读取文件失败", "error")
+          notify("读取文件失败", "error")
         }
       } else {
         // Fallback: use FileReader for web-style file reading
@@ -241,11 +278,11 @@ export default function JsonFormatterPage() {
           if (typeof content === "string") {
             setInput(content)
             setFilePath(file.name)
-            showToast("文件已加载", "success")
+            notify("文件已加载", "success")
           }
         }
         reader.onerror = () => {
-          showToast("读取文件失败", "error")
+          notify("读取文件失败", "error")
         }
         reader.readAsText(file)
       }
@@ -257,49 +294,126 @@ export default function JsonFormatterPage() {
       container.removeEventListener("dragover", handleDragOver)
       container.removeEventListener("drop", handleDrop)
     }
-  }, [showToast])
+  }, [notify])
 
-  // Character count
-  const charCount = input.length
+  // ─── Expose CommandBar actions to the shell ───────────────────────────────
+
+  const hasContent = input.trim().length > 0
+
+  const commandActions: CommandAction[] = useMemo(
+    () => [
+      {
+        id: "json-format",
+        icon: BracketsCurly,
+        label: "格式化",
+        shortcut: "⌘⇧F",
+        group: "primary",
+        disabled: !hasContent,
+        onExecute: handleFormat
+      },
+      {
+        id: "json-minify",
+        icon: ArrowsInLineHorizontal,
+        label: "压缩",
+        shortcut: "⌘⇧M",
+        group: "primary",
+        disabled: !hasContent,
+        onExecute: handleMinify
+      },
+      {
+        id: "json-diff",
+        icon: GitDiff,
+        label: mode === "diff" ? "退出对比" : "Diff 对比",
+        group: "primary",
+        disabled: false,
+        onExecute: handleToggleDiff
+      },
+      {
+        id: "json-open",
+        icon: FolderOpen,
+        label: "打开文件",
+        shortcut: "⌘O",
+        group: "file",
+        disabled: false,
+        onExecute: () => {
+          void handleOpenFile()
+        }
+      },
+      {
+        id: "json-save",
+        icon: FloppyDisk,
+        label: "保存文件",
+        shortcut: "⌘S",
+        group: "file",
+        disabled: !hasContent,
+        onExecute: () => {
+          void handleSaveFile()
+        }
+      },
+      {
+        id: "json-copy",
+        icon: Copy,
+        label: "复制结果",
+        group: "auxiliary",
+        disabled: !hasContent,
+        onExecute: () => {
+          void handleCopyResult()
+        }
+      },
+      {
+        id: "json-paste",
+        icon: ClipboardText,
+        label: "从剪贴板粘贴",
+        group: "auxiliary",
+        disabled: false,
+        onExecute: () => {
+          void handlePasteFromClipboard()
+        }
+      }
+    ],
+    [
+      hasContent,
+      mode,
+      handleFormat,
+      handleMinify,
+      handleToggleDiff,
+      handleOpenFile,
+      handleSaveFile,
+      handleCopyResult,
+      handlePasteFromClipboard
+    ]
+  )
+
+  useEffect(() => {
+    onActionsChange?.(commandActions)
+  }, [commandActions, onActionsChange])
+
+  // ─── Expose StatusStrip data to the shell ─────────────────────────────────
+
+  const lineCount = useMemo(
+    () => (input ? input.split("\n").length : 0),
+    [input]
+  )
+
+  useEffect(() => {
+    onStatusChange?.({
+      diagnostics: {
+        errors: error ? 1 : 0,
+        warnings: 0
+      },
+      filePath: filePath ?? undefined,
+      stats: {
+        chars: input.length,
+        lines: lineCount,
+        encoding: "UTF-8"
+      }
+    })
+  }, [error, filePath, input.length, lineCount, onStatusChange])
+
+  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div ref={containerRef} className="flex h-full flex-col">
-      {/* Top Toolbar */}
-      <div className="flex flex-shrink-0 items-center gap-1.5 border-b border-stone-200 bg-white px-4 py-2.5 dark:border-stone-800 dark:bg-stone-900">
-        <div className="toolbar">
-          <button onClick={handleFormat} className="toolbar-btn-primary">
-            格式化
-          </button>
-          <button onClick={handleMinify} className="toolbar-btn">
-            压缩
-          </button>
-          <div className="toolbar-divider" />
-          <button
-            onClick={handleToggleDiff}
-            className={mode === "diff" ? "toolbar-btn-primary" : "toolbar-btn"}>
-            {mode === "diff" ? "退出对比" : "Diff 对比"}
-          </button>
-        </div>
-
-        <div className="mx-2 h-4 w-px bg-stone-200 dark:bg-stone-700" />
-
-        <div className="toolbar">
-          <button onClick={handleOpenFile} className="toolbar-btn">
-            📂 打开
-          </button>
-          <button onClick={handleSaveFile} className="toolbar-btn">
-            💾 保存
-          </button>
-          <div className="toolbar-divider" />
-          <button onClick={handleCopyResult} className="toolbar-btn">
-            📋 复制
-          </button>
-          <button onClick={handlePasteFromClipboard} className="toolbar-btn">
-            📥 粘贴
-          </button>
-        </div>
-      </div>
-
       {/* Main Editor Area */}
       <div className="min-h-0 flex-1">
         {mode === "format" ? (
@@ -327,25 +441,8 @@ export default function JsonFormatterPage() {
         )}
       </div>
 
-      {/* Bottom Status Bar */}
-      <div className="status-bar">
-        {error && (
-          <span className="text-rose-600 dark:text-rose-400">
-            ⚠ {error}
-          </span>
-        )}
-        {filePath && (
-          <span className="truncate" title={filePath}>
-            📄 {filePath}
-          </span>
-        )}
-        <span className="ml-auto font-mono">
-          {charCount} 字符
-        </span>
-      </div>
-
-      {/* Toast */}
-      {toast && (
+      {/* Local Toast — only used when not wired to shell toast */}
+      {!onToast && toast && (
         <Toast
           message={toast.message}
           type={toast.type}
