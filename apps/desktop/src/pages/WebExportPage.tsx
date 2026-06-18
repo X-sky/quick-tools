@@ -1,10 +1,17 @@
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { getPlatform } from "@quick-tools/platform"
 import type { ExportFormat, MarkdownExportSource } from "@quick-tools/web-export"
 import { buildDownloadFilename, buildFilenameBase, buildMarkdownDocument } from "@quick-tools/web-export"
 import { open } from "@tauri-apps/plugin-dialog"
 import { writeFile } from "@tauri-apps/plugin-fs"
+import {
+  Globe,
+  FileText,
+  FilePdf,
+  Image,
+  Copy
+} from "@phosphor-icons/react"
 
 import { BatchUrlPanel } from "~/components/BatchUrlPanel"
 import type { BatchExportProgress, BatchExportResult } from "~/components/BatchUrlPanel"
@@ -12,10 +19,12 @@ import { HistoryPanel } from "~/components/HistoryPanel"
 import { MarkdownPreview } from "~/components/MarkdownPreview"
 import { ResizableSplitPane } from "~/components/ResizableSplitPane"
 import { Toast } from "~/components/Toast"
+import type { CommandAction } from "~/components/shell/CommandBar"
 import { useHistory } from "~/hooks/useHistory"
 import { useToast } from "~/hooks/useToast"
 import { renderToPdf, renderToPng } from "~/lib/pdf-png-renderer"
 import { tauriContentExtractor } from "~/platform/content-extractor"
+import type { PageShellProps } from "~/types/page-shell"
 
 interface ExportHistoryItem {
   url: string
@@ -30,8 +39,8 @@ async function loadFonts(): Promise<{ body: ArrayBuffer; mono: ArrayBuffer }> {
   // Fallback: use fetch to load from a known path or generate minimal placeholder
   try {
     const [bodyRes, monoRes] = await Promise.all([
-      fetch("/fonts/Arial Unicode.ttf"),
-      fetch("/fonts/Courier New.ttf")
+      fetch(encodeURI("/fonts/Arial Unicode.ttf.fixed.ttf")),
+      fetch(encodeURI("/fonts/Courier New.ttf.fixed.ttf"))
     ])
     if (bodyRes.ok && monoRes.ok) {
       return {
@@ -46,7 +55,11 @@ async function loadFonts(): Promise<{ body: ArrayBuffer; mono: ArrayBuffer }> {
   return { body: new ArrayBuffer(0), mono: new ArrayBuffer(0) }
 }
 
-export default function WebExportPage() {
+export default function WebExportPage({
+  onActionsChange,
+  onStatusChange,
+  onToast
+}: PageShellProps = {}) {
   // Mode
   const [mode, setMode] = useState<"single" | "batch">("single")
 
@@ -71,6 +84,21 @@ export default function WebExportPage() {
   // Toast
   const { toast, showToast, hideToast } = useToast()
 
+  // Unified notify: prefer shell toast, fall back to local toast.
+  const notify = useCallback(
+    (
+      message: string,
+      type: "success" | "error" | "warning" | "info"
+    ) => {
+      if (onToast) {
+        onToast({ type, title: message })
+      } else {
+        showToast(message, type === "warning" ? "info" : type)
+      }
+    },
+    [onToast, showToast]
+  )
+
   const filteredHistory = historySearchQuery
     ? searchHistory(historySearchQuery)
     : historyItems
@@ -86,9 +114,9 @@ export default function WebExportPage() {
 
     if (!result.ok) {
       if (result.error.category === "timeout") {
-        showToast("请求超时，请检查网络连接后重试", "error")
+        notify("请求超时，请检查网络连接后重试", "error")
       } else {
-        showToast(`页面内容提取失败: ${result.error.message}`, "error")
+        notify(`页面内容提取失败: ${result.error.message}`, "error")
       }
       setLoading(false)
       return
@@ -96,8 +124,8 @@ export default function WebExportPage() {
 
     setSource(result.value as MarkdownExportSource)
     setLoading(false)
-    showToast("内容提取成功", "success")
-  }, [url, showToast])
+    notify("内容提取成功", "success")
+  }, [url, notify])
 
   const handleExportMarkdown = useCallback(async () => {
     if (!source) return
@@ -114,7 +142,7 @@ export default function WebExportPage() {
     )
 
     if (result.ok) {
-      showToast("Markdown 导出成功", "success")
+      notify("Markdown 导出成功", "success")
       await addHistory({
         url: source.url,
         title: source.title,
@@ -123,9 +151,9 @@ export default function WebExportPage() {
         content: source.title + " " + source.url
       })
     } else if (result.error.category !== "cancelled") {
-      showToast(`导出失败: ${result.error.message}`, "error")
+      notify(`导出失败: ${result.error.message}`, "error")
     }
-  }, [source, showToast, addHistory])
+  }, [source, notify, addHistory])
 
   const handleExportPdf = useCallback(async () => {
     if (!source) return
@@ -149,7 +177,7 @@ export default function WebExportPage() {
       )
 
       if (result.ok) {
-        showToast("PDF 导出成功", "success")
+        notify("PDF 导出成功", "success")
         await addHistory({
           url: source.url,
           title: source.title,
@@ -158,15 +186,15 @@ export default function WebExportPage() {
           content: source.title + " " + source.url
         })
       } else if (result.error.category !== "cancelled") {
-        showToast(`导出失败: ${result.error.message}`, "error")
+        notify(`导出失败: ${result.error.message}`, "error")
       }
     } catch (err) {
-      showToast(
+      notify(
         `渲染失败: ${err instanceof Error ? err.message : String(err)}`,
         "error"
       )
     }
-  }, [source, showToast, addHistory])
+  }, [source, notify, addHistory])
 
   const handleExportPng = useCallback(async () => {
     if (!source) return
@@ -190,7 +218,7 @@ export default function WebExportPage() {
       )
 
       if (result.ok) {
-        showToast("PNG 导出成功", "success")
+        notify("PNG 导出成功", "success")
         await addHistory({
           url: source.url,
           title: source.title,
@@ -199,15 +227,15 @@ export default function WebExportPage() {
           content: source.title + " " + source.url
         })
       } else if (result.error.category !== "cancelled") {
-        showToast(`导出失败: ${result.error.message}`, "error")
+        notify(`导出失败: ${result.error.message}`, "error")
       }
     } catch (err) {
-      showToast(
+      notify(
         `渲染失败: ${err instanceof Error ? err.message : String(err)}`,
         "error"
       )
     }
-  }, [source, showToast, addHistory])
+  }, [source, notify, addHistory])
 
   const handleCopyPng = useCallback(async () => {
     if (!source) return
@@ -224,17 +252,17 @@ export default function WebExportPage() {
       const result = await platform.clipboard.writeImage(pngBytes, "image/png")
 
       if (result.ok) {
-        showToast("PNG 已复制到剪贴板", "success")
+        notify("PNG 已复制到剪贴板", "success")
       } else {
-        showToast("剪贴板写入失败，请检查权限", "error")
+        notify("剪贴板写入失败，请检查权限", "error")
       }
     } catch (err) {
-      showToast(
+      notify(
         `渲染失败: ${err instanceof Error ? err.message : String(err)}`,
         "error"
       )
     }
-  }, [source, showToast])
+  }, [source, notify])
 
   // --- Batch mode handler ---
 
@@ -342,12 +370,12 @@ export default function WebExportPage() {
       const failCount = results.filter((r) => !r.success).length
 
       if (failCount === 0) {
-        showToast(`导出完成：成功 ${successCount} 个`, "success")
+        notify(`导出完成：成功 ${successCount} 个`, "success")
       } else {
-        showToast(`导出完成：成功 ${successCount} 个，失败 ${failCount} 个`, "error")
+        notify(`导出完成：成功 ${successCount} 个，失败 ${failCount} 个`, "error")
       }
     },
-    [showToast, addHistory]
+    [notify, addHistory]
   )
 
   // --- History handlers ---
@@ -363,6 +391,99 @@ export default function WebExportPage() {
     },
     [removeHistory]
   )
+
+  // ─── Expose CommandBar actions to the shell ───────────────────────────────
+
+  const commandActions: CommandAction[] = useMemo(() => {
+    const actions: CommandAction[] = [
+      {
+        id: "web-extract",
+        icon: Globe,
+        label: "提取",
+        group: "primary",
+        disabled: loading || !url.trim(),
+        onExecute: () => {
+          void handleExtract()
+        }
+      }
+    ]
+
+    // Export actions only available in single mode with an extracted source.
+    if (mode === "single" && source) {
+      actions.push(
+        {
+          id: "web-export-md",
+          icon: FileText,
+          label: "导出 Markdown",
+          group: "file",
+          disabled: !source,
+          onExecute: () => {
+            void handleExportMarkdown()
+          }
+        },
+        {
+          id: "web-export-pdf",
+          icon: FilePdf,
+          label: "导出 PDF",
+          group: "file",
+          disabled: !source,
+          onExecute: () => {
+            void handleExportPdf()
+          }
+        },
+        {
+          id: "web-export-png",
+          icon: Image,
+          label: "导出 PNG",
+          group: "file",
+          disabled: !source,
+          onExecute: () => {
+            void handleExportPng()
+          }
+        },
+        {
+          id: "web-copy-png",
+          icon: Copy,
+          label: "复制 PNG 到剪贴板",
+          group: "auxiliary",
+          disabled: !source,
+          onExecute: () => {
+            void handleCopyPng()
+          }
+        }
+      )
+    }
+
+    return actions
+  }, [
+    mode,
+    source,
+    loading,
+    url,
+    handleExtract,
+    handleExportMarkdown,
+    handleExportPdf,
+    handleExportPng,
+    handleCopyPng
+  ])
+
+  useEffect(() => {
+    onActionsChange?.(commandActions)
+  }, [commandActions, onActionsChange])
+
+  // ─── Expose StatusStrip data to the shell ─────────────────────────────────
+
+  useEffect(() => {
+    const content = source?.markdown || source?.plainText || ""
+    onStatusChange?.({
+      diagnostics: { errors: 0, warnings: 0 },
+      stats: {
+        chars: content.length,
+        lines: content ? content.split("\n").length : 0,
+        encoding: "UTF-8"
+      }
+    })
+  }, [source, onStatusChange])
 
   // --- Render ---
 
@@ -403,44 +524,7 @@ export default function WebExportPage() {
               }}
               className="input-field flex-1"
             />
-            <button
-              type="button"
-              onClick={() => void handleExtract()}
-              disabled={loading || !url.trim()}
-              className="btn-primary disabled:cursor-not-allowed disabled:opacity-50">
-              {loading ? "提取中..." : "提取"}
-            </button>
           </div>
-
-          {/* Export buttons */}
-          {source && (
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void handleExportMarkdown()}
-                className="btn-secondary">
-                导出 Markdown
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleExportPdf()}
-                className="btn-secondary">
-                导出 PDF
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleExportPng()}
-                className="btn-secondary">
-                导出 PNG
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleCopyPng()}
-                className="btn-ghost">
-                复制 PNG 到剪贴板
-              </button>
-            </div>
-          )}
         </div>
       ) : (
         /* Batch Mode */
@@ -505,8 +589,8 @@ export default function WebExportPage() {
         )}
       />
 
-      {/* Toast */}
-      {toast && (
+      {/* Toast — only used when not wired to shell toast */}
+      {!onToast && toast && (
         <Toast
           message={toast.message}
           type={toast.type}

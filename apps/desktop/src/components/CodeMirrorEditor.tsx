@@ -100,7 +100,7 @@ export function CodeMirrorEditor({
       viewRef.current = null
     }
     // Only recreate editor when these structural props change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line
   }, [language, theme, readOnly, placeholder])
 
   // Update value from external changes without triggering onChange

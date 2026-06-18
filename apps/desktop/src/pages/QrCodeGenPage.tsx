@@ -1,17 +1,24 @@
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { getPlatform } from "@quick-tools/platform"
 import type { HistoryItem } from "@quick-tools/qr-code-gen"
+import { QrCode, DownloadSimple, Image as ImageIcon, Copy } from "@phosphor-icons/react"
 
 import { HistoryPanel } from "~/components/HistoryPanel"
 import { QrRenderer } from "~/components/QrRenderer"
 import { Toast } from "~/components/Toast"
 import { TemplateMode } from "~/components/template"
+import type { CommandAction } from "~/components/shell/CommandBar"
 import { useHistory } from "~/hooks/useHistory"
 import { useToast } from "~/hooks/useToast"
 import { calculateQrCapacity } from "~/lib/qr-capacity"
+import type { PageShellProps } from "~/types/page-shell"
 
-export default function QrCodeGenPage() {
+export default function QrCodeGenPage({
+  onActionsChange,
+  onStatusChange,
+  onToast
+}: PageShellProps = {}) {
   // Mode: free input or template (defaults to Free_Mode on page load)
   const [mode, setMode] = useState<"free" | "template">("free")
 
@@ -31,6 +38,18 @@ export default function QrCodeGenPage() {
   // Ref for SVG container (used for export)
   const svgContainerRef = useRef<HTMLDivElement>(null)
 
+  // Unified notify: prefer shell toast, fall back to local toast.
+  const notify = useCallback(
+    (message: string, type: "success" | "error" | "warning" | "info") => {
+      if (onToast) {
+        onToast({ type, title: message })
+      } else {
+        showToast(message, type === "warning" ? "info" : type)
+      }
+    },
+    [onToast, showToast]
+  )
+
   const filteredHistory = searchQuery
     ? searchHistory(searchQuery)
     : historyItems
@@ -39,15 +58,15 @@ export default function QrCodeGenPage() {
     if (!content.trim()) return
     const capacityInfo = calculateQrCapacity(content, level)
     if (capacityInfo.isOverCapacity) {
-      showToast(
+      notify(
         `内容过长，超出二维码容量限制（当前 ${capacityInfo.charCount} 字节，最大 ${capacityInfo.maxCapacity} 字节）`,
         "error"
       )
       return
     }
     await addHistory({ content: content.trim(), timestamp: Date.now() })
-    showToast("二维码已生成", "success")
-  }, [content, level, addHistory, showToast])
+    notify("二维码已生成", "success")
+  }, [content, level, addHistory, notify])
 
   const handleExportPng = useCallback(async () => {
     const svgEl = svgContainerRef.current?.querySelector("svg")
@@ -90,14 +109,14 @@ export default function QrCodeGenPage() {
         "image/png"
       )
       if (result.ok) {
-        showToast("PNG 已保存", "success")
+        notify("PNG 已保存", "success")
       } else if (result.error.category !== "cancelled") {
-        showToast(result.error.message, "error")
+        notify(result.error.message, "error")
       }
     } catch {
-      showToast("导出 PNG 失败", "error")
+      notify("导出 PNG 失败", "error")
     }
-  }, [content, size, showToast])
+  }, [content, size, notify])
 
   const handleExportSvg = useCallback(async () => {
     const svgEl = svgContainerRef.current?.querySelector("svg")
@@ -112,14 +131,14 @@ export default function QrCodeGenPage() {
         "image/svg+xml"
       )
       if (result.ok) {
-        showToast("SVG 已保存", "success")
+        notify("SVG 已保存", "success")
       } else if (result.error.category !== "cancelled") {
-        showToast(result.error.message, "error")
+        notify(result.error.message, "error")
       }
     } catch {
-      showToast("导出 SVG 失败", "error")
+      notify("导出 SVG 失败", "error")
     }
-  }, [content, showToast])
+  }, [content, notify])
 
   const handleCopyToClipboard = useCallback(async () => {
     const svgEl = svgContainerRef.current?.querySelector("svg")
@@ -158,14 +177,14 @@ export default function QrCodeGenPage() {
       const platform = getPlatform()
       const result = await platform.clipboard.writeImage(pngData, "image/png")
       if (result.ok) {
-        showToast("已复制到剪贴板", "success")
+        notify("已复制到剪贴板", "success")
       } else {
-        showToast("剪贴板写入失败，请检查权限", "error")
+        notify("剪贴板写入失败，请检查权限", "error")
       }
     } catch {
-      showToast("复制到剪贴板失败", "error")
+      notify("复制到剪贴板失败", "error")
     }
-  }, [size, showToast])
+  }, [size, notify])
 
   const handleHistorySelect = useCallback((item: HistoryItem) => {
     setContent(item.content)
@@ -178,6 +197,96 @@ export default function QrCodeGenPage() {
     },
     [removeHistory]
   )
+
+  // Adapter for TemplateMode: prefer shell toast, fall back to local toast
+  // (preserving the optional duration used by local toasts).
+  const notifyTemplate = useCallback(
+    (
+      message: string,
+      type: "success" | "error" | "info",
+      duration?: number
+    ) => {
+      if (onToast) {
+        onToast({ type, title: message })
+      } else {
+        showToast(message, type, duration)
+      }
+    },
+    [onToast, showToast]
+  )
+
+  // ─── Expose CommandBar actions to the shell ───────────────────────────────
+
+  const hasContent = content.trim().length > 0
+
+  const commandActions: CommandAction[] = useMemo(
+    () => [
+      {
+        id: "qr-generate",
+        icon: QrCode,
+        label: "生成二维码",
+        group: "primary",
+        disabled: !hasContent,
+        onExecute: () => {
+          void handleGenerate()
+        }
+      },
+      {
+        id: "qr-export-png",
+        icon: ImageIcon,
+        label: "导出 PNG",
+        group: "file",
+        disabled: !hasContent,
+        onExecute: () => {
+          void handleExportPng()
+        }
+      },
+      {
+        id: "qr-export-svg",
+        icon: DownloadSimple,
+        label: "导出 SVG",
+        group: "file",
+        disabled: !hasContent,
+        onExecute: () => {
+          void handleExportSvg()
+        }
+      },
+      {
+        id: "qr-copy",
+        icon: Copy,
+        label: "复制到剪贴板",
+        group: "auxiliary",
+        disabled: !hasContent,
+        onExecute: () => {
+          void handleCopyToClipboard()
+        }
+      }
+    ],
+    [
+      hasContent,
+      handleGenerate,
+      handleExportPng,
+      handleExportSvg,
+      handleCopyToClipboard
+    ]
+  )
+
+  useEffect(() => {
+    onActionsChange?.(commandActions)
+  }, [commandActions, onActionsChange])
+
+  // ─── Expose StatusStrip data to the shell ─────────────────────────────────
+
+  useEffect(() => {
+    onStatusChange?.({
+      diagnostics: { errors: 0, warnings: 0 },
+      stats: {
+        chars: content.length,
+        lines: content ? content.split("\n").length : 0,
+        encoding: "UTF-8"
+      }
+    })
+  }, [content, onStatusChange])
 
   return (
     <div className="flex h-full">
@@ -242,14 +351,6 @@ export default function QrCodeGenPage() {
               className="input-field resize-none"
             />
 
-            {/* Generate Button */}
-            <button
-              onClick={handleGenerate}
-              disabled={!content.trim()}
-              className="btn-primary w-full justify-center disabled:cursor-not-allowed disabled:opacity-50">
-              生成二维码
-            </button>
-
             {/* QR Code Display */}
             <div ref={svgContainerRef} className="flex flex-1 items-center justify-center">
               {content.trim() && (
@@ -269,7 +370,7 @@ export default function QrCodeGenPage() {
         <div
           className="flex flex-1 flex-col min-h-0"
           style={{ display: mode === "template" ? "flex" : "none" }}>
-          <TemplateMode showToast={showToast} />
+          <TemplateMode showToast={notifyTemplate} />
         </div>
       </div>
 
@@ -300,8 +401,8 @@ export default function QrCodeGenPage() {
         )}
       />
 
-      {/* Toast */}
-      {toast && (
+      {/* Local Toast — only used when not wired to shell toast */}
+      {!onToast && toast && (
         <Toast
           message={toast.message}
           type={toast.type}
