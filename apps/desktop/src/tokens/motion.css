@@ -1,0 +1,15 @@
+/* Design Token: Motion
+ * Duration tokens: instant / fast / normal / slow
+ * Easing curve: cubic-bezier(0.4, 0, 0.2, 1)
+ */
+
+:root {
+  /* Duration */
+  --duration-instant: 100ms;
+  --duration-fast: 200ms;
+  --duration-normal: 300ms;
+  --duration-slow: 500ms;
+
+  /* Easing */
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+}

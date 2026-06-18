@@ -1,0 +1,71 @@
+/* Design Token: Typography
+ * Font families: Geist → system-ui → sans-serif (sans); JetBrains Mono → Fira Code → monospace (mono)
+ * Modular scale: 1.25 ratio (Major Third), base 14px
+ * Steps: 11 / 14 / 17.5 / 22 / 27.5 px
+ * NO Inter font anywhere
+ *
+ * All fonts are bundled locally (public/fonts/) for offline desktop use.
+ * No CDN dependency — Tauri app must work without network.
+ */
+
+/* ─── Geist Sans (Variable Font) ─── */
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ─── JetBrains Mono ─── */
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Font Families */
+  --font-sans: "Geist", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+
+  /* Modular Scale (ratio 1.25, base 14px) */
+  --text-2xs: 11px;
+  --text-xs: 14px;
+  --text-sm: 17.5px;
+  --text-base: 22px;
+  --text-lg: 27.5px;
+
+  /* Line Heights */
+  --leading-2xs: 16px;
+  --leading-xs: 20px;
+  --leading-sm: 24px;
+  --leading-base: 28px;
+  --leading-lg: 36px;
+}

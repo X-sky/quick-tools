@@ -1,0 +1,48 @@
+/* Design Token: Colors
+ * Warm Neutral Scale (hue: 40°, saturation: 4-6%)
+ * Brand Accent - Deep Rose (hue: 350°, saturation: 55% at 500 step)
+ * NO pure black (#000000) or pure white (#ffffff) anywhere
+ */
+
+:root {
+  /* Warm Neutral Scale */
+  --neutral-50: hsl(40, 6%, 97%);
+  --neutral-100: hsl(40, 5%, 93%);
+  --neutral-200: hsl(40, 5%, 86%);
+  --neutral-300: hsl(40, 4%, 74%);
+  --neutral-400: hsl(40, 4%, 58%);
+  --neutral-500: hsl(40, 4%, 45%);
+  --neutral-600: hsl(40, 4%, 35%);
+  --neutral-700: hsl(40, 5%, 26%);
+  --neutral-800: hsl(40, 5%, 18%);
+  --neutral-900: hsl(40, 5%, 11%);
+  --neutral-950: hsl(40, 6%, 7%);
+
+  /* Brand Accent - Deep Rose */
+  --brand-50: hsl(350, 55%, 97%);
+  --brand-100: hsl(350, 52%, 93%);
+  --brand-200: hsl(350, 55%, 85%);
+  --brand-300: hsl(350, 58%, 74%);
+  --brand-400: hsl(350, 58%, 63%);
+  --brand-500: hsl(350, 55%, 50%);
+  --brand-600: hsl(350, 55%, 44%);
+  --brand-700: hsl(350, 52%, 36%);
+  --brand-800: hsl(350, 48%, 28%);
+  --brand-900: hsl(350, 45%, 22%);
+  --brand-950: hsl(350, 40%, 14%);
+}
+
+.dark {
+  /* Dark mode overrides - inverted neutral scale, non-pure-black warm dark */
+  --neutral-50: hsl(40, 5%, 11%);
+  --neutral-100: hsl(40, 5%, 14%);
+  --neutral-200: hsl(40, 5%, 18%);
+  --neutral-300: hsl(40, 4%, 26%);
+  --neutral-400: hsl(40, 4%, 35%);
+  --neutral-500: hsl(40, 4%, 45%);
+  --neutral-600: hsl(40, 4%, 58%);
+  --neutral-700: hsl(40, 5%, 74%);
+  --neutral-800: hsl(40, 5%, 86%);
+  --neutral-900: hsl(40, 5%, 93%);
+  --neutral-950: hsl(40, 6%, 97%);
+}

@@ -1,4 +1,10 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+/* Design Token System (Refined Utility) — additive, does not affect existing styles */
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/spacing.css";
+@import "./tokens/shadows.css";
+@import "./tokens/radii.css";
+@import "./tokens/motion.css";
 
 @tailwind base;
 @tailwind components;

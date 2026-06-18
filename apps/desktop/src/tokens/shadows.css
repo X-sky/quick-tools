@@ -1,0 +1,11 @@
+/* Design Token: Shadows
+ * Four-level warm-tinted shadow system
+ * Uses hsla(40, 10%, 20%, α) — NOT rgba(0,0,0,α)
+ */
+
+:root {
+  --shadow-surface: 0 1px 2px hsla(40, 10%, 20%, 0.04);
+  --shadow-raised: 0 2px 8px hsla(40, 10%, 20%, 0.06);
+  --shadow-overlay: 0 8px 24px hsla(40, 10%, 20%, 0.1);
+  --shadow-modal: 0 16px 48px hsla(40, 10%, 20%, 0.16);
+}
