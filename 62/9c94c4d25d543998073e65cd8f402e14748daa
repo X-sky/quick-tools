@@ -1,0 +1,21 @@
+apps/desktop/src-tauri/capabilities/default.json
+  s_17dc37aae276af::t_b87b577d7450e0 44-47
+apps/desktop/src-tauri/Cargo.toml
+  s_17dc37aae276af::t_30170eb61b2af1 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.51-trip",
+  "base_commit_sha": "629c94c4d25d543998073e65cd8f402e14748daa",
+  "prompts": {},
+  "sessions": {
+    "s_17dc37aae276af": {
+      "agent_id": {
+        "tool": "chengxiaobang",
+        "id": "s_39wma79ziidy",
+        "model": "auto(free)"
+      },
+      "human_author": "X-sky <ttse0103@outlook.com>"
+    }
+  }
+}
