@@ -1,7 +1,8 @@
 import { PDFDocument } from "pdf-lib"
 
-import { PDF_PAGE_WIDTH_PT } from "./render-constants"
-import type { PdfPageCapture } from "./types"
+import type { PdfPageCapture } from "@quick-tools/web-export"
+
+import { PDF_PAGE_WIDTH_PT } from "./constants"
 
 export async function buildPdfBytes(pageCaptures: PdfPageCapture[]) {
   const pdf = await PDFDocument.create()

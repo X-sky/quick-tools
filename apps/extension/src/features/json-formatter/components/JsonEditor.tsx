@@ -3,16 +3,25 @@ import { json } from "@codemirror/lang-json"
 import { foldKeymap } from "@codemirror/language"
 import { StateEffect, StateField } from "@codemirror/state"
 import { Decoration, EditorView, keymap } from "@codemirror/view"
-import { parseJsonOrJsObject } from "@quick-tools/json-formatter"
+import type { DiffLine } from "@quick-tools/json-formatter"
+import {
+  formatJson,
+  minifyJson,
+  parseJsonOrJsObject,
+  sortJsonKeys
+} from "@quick-tools/json-formatter"
+import { getPlatform } from "@quick-tools/platform"
 import CodeMirror from "@uiw/react-codemirror"
 import React, { useEffect, useMemo, useRef, useState } from "react"
 
-import { CopyIcon, TrashIcon } from "~icons"
-
-interface DiffLine {
-  lineNumber: number
-  type: "added" | "removed" | "modified" | "unchanged"
-}
+import {
+  ClipboardIcon,
+  CopyIcon,
+  DownloadIcon,
+  TrashIcon,
+  UploadIcon
+} from "~icons"
+import { getVisibleError } from "~platform/result"
 
 // 创建装饰效果
 const setDiffMarks = StateEffect.define<DiffLine[]>()
@@ -63,19 +72,6 @@ const createDiffField = () => {
   })
 }
 
-const sortJsonByKey = (value: unknown): unknown => {
-  if (Array.isArray(value)) {
-    return value.map((item) => sortJsonByKey(item))
-  }
-  if (value && typeof value === "object") {
-    const sortedEntries = Object.entries(value as Record<string, unknown>)
-      .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
-      .map(([key, val]) => [key, sortJsonByKey(val)])
-    return Object.fromEntries(sortedEntries)
-  }
-  return value
-}
-
 interface JsonEditorProps {
   value: string
   onChange: (value: string) => void
@@ -88,6 +84,10 @@ export const JsonEditor = React.forwardRef<
   JsonEditorProps
 >(({ value, onChange, label, onDiffChange }, ref) => {
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [enableJsonMode, setEnableJsonMode] = useState<boolean>(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const [editorHeight, setEditorHeight] = useState<number>(600)
@@ -140,8 +140,7 @@ export const JsonEditor = React.forwardRef<
   const handleFormat = () => {
     try {
       const parsed = parseJsonOrJsObject(value)
-      const formatted = JSON.stringify(parsed, null, 2)
-      onChange(formatted)
+      onChange(formatJson(parsed))
       setError(null)
       setEnableJsonMode(true)
       clearDiff()
@@ -153,8 +152,7 @@ export const JsonEditor = React.forwardRef<
   const handleMinify = () => {
     try {
       const parsed = parseJsonOrJsObject(value)
-      const minified = JSON.stringify(parsed, null, 0)
-      onChange(minified)
+      onChange(minifyJson(parsed))
       setError(null)
       setEnableJsonMode(true)
       clearDiff()
@@ -166,9 +164,7 @@ export const JsonEditor = React.forwardRef<
   const handleSort = () => {
     try {
       const parsed = parseJsonOrJsObject(value)
-      const sorted = sortJsonByKey(parsed)
-      const formatted = JSON.stringify(sorted, null, 2)
-      onChange(formatted)
+      onChange(formatJson(sortJsonKeys(parsed)))
       setError(null)
       setEnableJsonMode(true)
       clearDiff()
@@ -177,18 +173,95 @@ export const JsonEditor = React.forwardRef<
     }
   }
 
+  const showNotice = (message: string) => {
+    setNotice(message)
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+    noticeTimerRef.current = setTimeout(() => setNotice(null), 2000)
+  }
+
+  useEffect(
+    () => () => {
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+    },
+    []
+  )
+
+  const loadText = (text: string, name: string | null) => {
+    onChange(text)
+    setFileName(name)
+    setError(null)
+    setEnableJsonMode(false)
+    clearDiff()
+    onDiffChange?.()
+  }
+
   const handleCopy = async () => {
-    if (value) {
-      try {
-        await navigator.clipboard.writeText(value)
-      } catch (e) {
-        console.error("Failed to copy", e)
-      }
+    if (!value.trim()) {
+      showNotice("没有可复制的内容")
+      return
     }
+    const result = await getPlatform().clipboard.writeText(value)
+    showNotice(result.ok ? "已复制到剪贴板" : "剪贴板写入失败")
+  }
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text) {
+        loadText(text, null)
+        showNotice("已从剪贴板粘贴")
+      } else {
+        showNotice("剪贴板为空")
+      }
+    } catch {
+      showNotice("读取剪贴板失败")
+    }
+  }
+
+  const readFile = async (file: File) => {
+    try {
+      loadText(await file.text(), file.name)
+      showNotice("文件已加载")
+    } catch {
+      showNotice("读取文件失败")
+    }
+  }
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (file) void readFile(file)
+  }
+
+  const handleSave = async () => {
+    if (!value.trim()) {
+      showNotice("没有可保存的内容")
+      return
+    }
+    const result = await getPlatform().fileDownloader.downloadWithDialog(
+      value,
+      fileName ?? "formatted.json",
+      "application/json"
+    )
+    if (result.ok) {
+      showNotice("文件已保存")
+    } else {
+      const message = getVisibleError(result)
+      if (message) showNotice(message)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    const file = e.dataTransfer.files?.[0]
+    if (!file) return
+    e.preventDefault()
+    e.stopPropagation()
+    void readFile(file)
   }
 
   const handleClear = () => {
     onChange("")
+    setFileName(null)
     setError(null)
     setEnableJsonMode(false)
     clearDiff()
@@ -344,11 +417,27 @@ export const JsonEditor = React.forwardRef<
       )}
       <div
         ref={containerRef}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("Files")) e.preventDefault()
+        }}
+        onDrop={handleDrop}
         className="plasmo-flex-1 plasmo-min-h-0 plasmo-bg-white plasmo-rounded-xl plasmo-shadow-lg plasmo-border plasmo-border-gray-200 plasmo-flex plasmo-flex-col plasmo-overflow-hidden">
         {/* Toolbar */}
         <div className="plasmo-flex plasmo-items-center plasmo-justify-between plasmo-px-4 plasmo-py-2 plasmo-bg-gray-50 plasmo-border-b plasmo-border-gray-200">
-          <span className="plasmo-text-sm plasmo-font-medium plasmo-text-gray-700">
+          <span className="plasmo-flex plasmo-items-center plasmo-gap-2 plasmo-min-w-0 plasmo-text-sm plasmo-font-medium plasmo-text-gray-700">
             {label}
+            {fileName && (
+              <span
+                title={fileName}
+                className="plasmo-truncate plasmo-max-w-[160px] plasmo-text-xs plasmo-font-normal plasmo-text-gray-400">
+                {fileName}
+              </span>
+            )}
+            {notice && (
+              <span className="plasmo-text-xs plasmo-font-normal plasmo-text-emerald-600">
+                {notice}
+              </span>
+            )}
           </span>
           <div className="plasmo-flex plasmo-items-center plasmo-gap-2">
             <button
@@ -366,8 +455,35 @@ export const JsonEditor = React.forwardRef<
               className="plasmo-px-3 plasmo-py-1.5 plasmo-bg-white plasmo-text-gray-700 plasmo-border plasmo-border-gray-300 plasmo-rounded-lg hover:plasmo-bg-gray-50 hover:plasmo-border-gray-400 plasmo-transition-all plasmo-text-xs plasmo-font-medium plasmo-shadow-sm hover:plasmo-shadow-md">
               Minify
             </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,application/json,text/plain"
+              onChange={handleFileInputChange}
+              className="plasmo-hidden"
+              aria-hidden="true"
+              tabIndex={-1}
+            />
             <button
-              onClick={handleCopy}
+              onClick={() => fileInputRef.current?.click()}
+              className="plasmo-p-1.5 plasmo-text-gray-600 hover:plasmo-text-gray-900 hover:plasmo-bg-gray-100 plasmo-rounded-lg plasmo-transition-all plasmo-shadow-sm hover:plasmo-shadow-md"
+              title="打开文件">
+              <UploadIcon className="plasmo-w-4 plasmo-h-4" />
+            </button>
+            <button
+              onClick={() => void handleSave()}
+              className="plasmo-p-1.5 plasmo-text-gray-600 hover:plasmo-text-gray-900 hover:plasmo-bg-gray-100 plasmo-rounded-lg plasmo-transition-all plasmo-shadow-sm hover:plasmo-shadow-md"
+              title="保存文件">
+              <DownloadIcon className="plasmo-w-4 plasmo-h-4" />
+            </button>
+            <button
+              onClick={() => void handlePaste()}
+              className="plasmo-p-1.5 plasmo-text-gray-600 hover:plasmo-text-gray-900 hover:plasmo-bg-gray-100 plasmo-rounded-lg plasmo-transition-all plasmo-shadow-sm hover:plasmo-shadow-md"
+              title="从剪贴板粘贴">
+              <ClipboardIcon className="plasmo-w-4 plasmo-h-4" />
+            </button>
+            <button
+              onClick={() => void handleCopy()}
               className="plasmo-p-1.5 plasmo-text-gray-600 hover:plasmo-text-gray-900 hover:plasmo-bg-gray-100 plasmo-rounded-lg plasmo-transition-all plasmo-shadow-sm hover:plasmo-shadow-md"
               title="Copy">
               <CopyIcon className="plasmo-w-4 plasmo-h-4" />

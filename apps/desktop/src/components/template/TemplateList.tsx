@@ -7,6 +7,7 @@ export interface TemplateListProps {
   activeTemplateId: string | null
   onSelect: (id: string) => void
   onCreate: () => void
+  onEdit: (id: string) => void
   onDelete: (id: string) => void
   onImport: () => void
   onExport: () => void
@@ -17,6 +18,7 @@ export const TemplateList = ({
   activeTemplateId,
   onSelect,
   onCreate,
+  onEdit,
   onDelete,
   onImport,
   onExport
@@ -66,7 +68,8 @@ export const TemplateList = ({
           <button
             type="button"
             onClick={onExport}
-            className="rounded-md p-1.5 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600 dark:hover:bg-stone-800 dark:hover:text-stone-300"
+            disabled={templates.length === 0}
+            className="rounded-md p-1.5 text-stone-400 disabled:cursor-not-allowed disabled:opacity-30 transition-colors hover:bg-stone-100 hover:text-stone-600 dark:hover:bg-stone-800 dark:hover:text-stone-300"
             aria-label="导出模板"
             title="导出">
             <svg
@@ -112,14 +115,32 @@ export const TemplateList = ({
                   <span className="block truncate">{template.name}</span>
                 </button>
                 {showConfirmId === template.id ? (
+                  <div className="mr-1.5 flex shrink-0 items-center gap-1">
+                    <span className="text-xs text-stone-500 dark:text-stone-400">删除？</span>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(template.id)}
+                      className="rounded-md px-2 py-1 text-xs font-medium text-rose-600 transition-all hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                      aria-label="确认删除">
+                      是
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmId(null)}
+                      className="rounded-md px-2 py-1 text-xs text-stone-500 transition-all hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-800"
+                      aria-label="取消删除">
+                      否
+                    </button>
+                  </div>
+                ) : (
+                  <>
                   <button
                     type="button"
-                    onClick={() => handleDelete(template.id)}
-                    className="mr-1.5 shrink-0 rounded-md px-2 py-1 text-xs font-medium text-rose-600 transition-all hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30"
-                    aria-label="确认删除">
-                    确认
+                    onClick={() => onEdit(template.id)}
+                    className="shrink-0 rounded-md px-1.5 py-1 text-xs text-stone-400 opacity-0 transition-all hover:bg-stone-100 hover:text-stone-700 group-hover:opacity-100 dark:hover:bg-stone-800 dark:hover:text-stone-200"
+                    aria-label="编辑模板">
+                    编辑
                   </button>
-                ) : (
                   <button
                     type="button"
                     onClick={() => handleDelete(template.id)}
@@ -137,6 +158,7 @@ export const TemplateList = ({
                       />
                     </svg>
                   </button>
+                  </>
                 )}
               </li>
             ))}

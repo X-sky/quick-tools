@@ -1,8 +1,11 @@
 import React from "react"
 
 import { JsonComparator } from "../features/json-formatter/components/JsonComparator"
+import { initChromePlatform } from "~platform"
 
 import "~style.css"
+
+initChromePlatform()
 
 function JsonFormatterTab() {
   return (

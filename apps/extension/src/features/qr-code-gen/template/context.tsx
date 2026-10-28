@@ -24,8 +24,17 @@ import {
   reorderValues,
   setDefaultValue as setDefaultValueInStore
 } from "./storage"
+import {
+  MAX_COMBINATION_TAG_NAME_LENGTH,
+  validateTemplateInput
+} from "@quick-tools/qr-code-gen"
+
 import { parse } from "./parser"
-import { exportToFile, importFromJson } from "./import-export"
+import {
+  exportToFile,
+  importFromJson,
+  MAX_IMPORT_FILE_SIZE
+} from "./import-export"
 
 interface TemplateContextType {
   store: TemplateStore
@@ -109,28 +118,16 @@ export function TemplateProvider({ children }: { children: ReactNode }) {
 
   const createTemplate = useCallback(
     (name: string, templateString: string): Result<Template> => {
-      if (name.trim() === "") {
-        return { ok: false, error: "模板名称不能为空" }
-      }
-      if (templateString.trim() === "") {
-        return { ok: false, error: "模板内容不能为空" }
-      }
-
-      const duplicate = store.templates.find((t) => t.name === name)
-      if (duplicate) {
-        return { ok: false, error: "模板名称已存在" }
-      }
-
-      const parseResult = parse(templateString)
-      if (parseResult.errors.length > 0) {
-        return { ok: false, error: parseResult.errors[0].message }
+      const valid = validateTemplateInput(name, templateString, store.templates)
+      if (valid.ok === false) {
+        return { ok: false, error: valid.error }
       }
 
       const now = Date.now()
       const template: Template = {
         id: crypto.randomUUID(),
-        name,
-        templateString,
+        name: valid.name,
+        templateString: valid.templateString,
         createdAt: now,
         updatedAt: now
       }
@@ -155,34 +152,20 @@ export function TemplateProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: "模板不存在" }
       }
 
-      const newName = patch.name ?? existing.name
-      const newTemplateString = patch.templateString ?? existing.templateString
-
-      if (newName.trim() === "") {
-        return { ok: false, error: "模板名称不能为空" }
-      }
-      if (newTemplateString.trim() === "") {
-        return { ok: false, error: "模板内容不能为空" }
-      }
-
-      const duplicate = store.templates.find(
-        (t) => t.name === newName && t.id !== id
+      const valid = validateTemplateInput(
+        patch.name ?? existing.name,
+        patch.templateString ?? existing.templateString,
+        store.templates,
+        id
       )
-      if (duplicate) {
-        return { ok: false, error: "模板名称已存在" }
-      }
-
-      if (patch.templateString !== undefined) {
-        const parseResult = parse(newTemplateString)
-        if (parseResult.errors.length > 0) {
-          return { ok: false, error: parseResult.errors[0].message }
-        }
+      if (valid.ok === false) {
+        return { ok: false, error: valid.error }
       }
 
       const updated: Template = {
         ...existing,
-        name: newName,
-        templateString: newTemplateString,
+        name: valid.name,
+        templateString: valid.templateString,
         updatedAt: Date.now()
       }
 
@@ -210,8 +193,11 @@ export function TemplateProvider({ children }: { children: ReactNode }) {
 
   const addPlaceholderValue = useCallback(
     (templateId: string, name: string, value: string): Result<void> => {
-      if (value.trim() === "") {
-        return { ok: false, error: "候选值不能为空" }
+      // Validate against the latest rendered store so limit errors reach the
+      // UI, then apply through the updater so batched adds don't drop values.
+      const check = addValue(store, templateId, name, value)
+      if (check.ok === false) {
+        return { ok: false, error: check.error }
       }
       setStore((prev) => {
         const result = addValue(prev, templateId, name, value)
@@ -219,7 +205,7 @@ export function TemplateProvider({ children }: { children: ReactNode }) {
       })
       return { ok: true, value: undefined }
     },
-    []
+    [store]
   )
 
   const deletePlaceholderValue = useCallback(
@@ -260,6 +246,17 @@ export function TemplateProvider({ children }: { children: ReactNode }) {
       if (!template) {
         return { ok: false, error: "模板不存在" }
       }
+      const trimmedName = name.trim()
+      if (!trimmedName) {
+        return { ok: false, error: "组合标签名称不能为空" }
+      }
+      if (trimmedName.length > MAX_COMBINATION_TAG_NAME_LENGTH) {
+        return {
+          ok: false,
+          error: `组合标签名称不能超过${MAX_COMBINATION_TAG_NAME_LENGTH}个字符`
+        }
+      }
+      name = trimmedName
 
       const parseResult = parse(template.templateString)
       const placeholderNames = parseResult.placeholderNames
@@ -380,6 +377,13 @@ export function TemplateProvider({ children }: { children: ReactNode }) {
 
   const handleImportFromFile = useCallback(
     async (file: File): Promise<ImportResult> => {
+      if (file.size > MAX_IMPORT_FILE_SIZE) {
+        return {
+          success: false,
+          added: { templates: 0, values: 0, tags: 0 },
+          error: "文件大小超过 10 MB 限制"
+        }
+      }
       const text = await file.text()
       const result = importFromJson(text, store)
       if (result.success && result.mergedStore) {

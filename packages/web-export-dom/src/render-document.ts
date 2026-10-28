@@ -1,11 +1,18 @@
-import { marked } from "marked"
+import type { MarkdownExportSource, RenderedDocument } from "@quick-tools/web-export"
+import { Marked } from "marked"
 
-import type { MarkdownExportSource, RenderedDocument } from "./types"
+const markdownParser = new Marked({ gfm: true, breaks: false })
 
-marked.setOptions({
-  gfm: true,
-  breaks: false
-})
+/** Fetches an image for inlining; hosts without CORS-free fetch supply their own. */
+export type ImageFetcher = (url: string) => Promise<Blob>
+
+export const defaultImageFetcher: ImageFetcher = async (url) => {
+  const response = await fetch(url, { credentials: "include" })
+  if (!response.ok) {
+    throw new Error(`Image request failed with ${response.status}`)
+  }
+  return await response.blob()
+}
 
 function escapeHtml(value: string) {
   return value
@@ -157,7 +164,11 @@ function buildImagePlaceholder(doc: Document) {
   return figure
 }
 
-async function inlineImagesInDocument(html: string, baseUrl: string) {
+async function inlineImagesInDocument(
+  html: string,
+  baseUrl: string,
+  fetchImage: ImageFetcher
+) {
   const doc = new DOMParser().parseFromString(html, "text/html")
   const root = doc.body.firstElementChild as HTMLElement | null
 
@@ -181,13 +192,7 @@ async function inlineImagesInDocument(html: string, baseUrl: string) {
       const src = absolutizeUrl(rawSrc, baseUrl)
 
       try {
-        const response = await fetch(src, { credentials: "include" })
-
-        if (!response.ok) {
-          throw new Error(`Image request failed with ${response.status}`)
-        }
-
-        const blob = await response.blob()
+        const blob = await fetchImage(src)
         let resolvedSrc = src
 
         if (supportsInlineDataUrl(blob.type || "")) {
@@ -218,9 +223,12 @@ async function inlineImagesInDocument(html: string, baseUrl: string) {
 }
 
 export async function buildRenderedDocument(
-  source: MarkdownExportSource
+  source: MarkdownExportSource,
+  fetchImage: ImageFetcher = defaultImageFetcher
 ): Promise<RenderedDocument> {
-  const markdownHtml = marked.parse(source.markdown || source.plainText || "")
+  const markdownHtml = await markdownParser.parse(
+    source.markdown || source.plainText || ""
+  )
   const documentHtml = `
     <article class="web-export-markdown">
       ${buildHeaderHtml(source)}
@@ -231,7 +239,11 @@ export async function buildRenderedDocument(
   `.trim()
 
   const normalizedHtml = normalizeDocumentHtml(documentHtml, source.url)
-  const prepared = await inlineImagesInDocument(normalizedHtml, source.url)
+  const prepared = await inlineImagesInDocument(
+    normalizedHtml,
+    source.url,
+    fetchImage
+  )
 
   return {
     html: prepared.html,

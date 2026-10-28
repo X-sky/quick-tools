@@ -9,6 +9,17 @@ import {
   type RefObject
 } from "react"
 
+import type { QrErrorLevel, QrSize } from "@quick-tools/qr-code-gen"
+import {
+  addTagToHistoryItem,
+  calculateQrCapacity,
+  collectHistoryTags,
+  filterHistoryItems,
+  removeHistoryItem,
+  removeTagFromHistoryItem,
+  upsertHistoryItem
+} from "@quick-tools/qr-code-gen"
+
 import type { HistoryItem } from "./types"
 import {
   exportHistoryToFile,
@@ -32,6 +43,12 @@ interface QrCodeContextType {
   addTagToItem: (content: string, tag: string) => void
   removeTagFromItem: (content: string, tag: string) => void
   setSelectedTag: (tag: string | null) => void
+  searchQuery: string
+  setSearchQuery: (query: string) => void
+  size: QrSize
+  setSize: (size: QrSize) => void
+  level: QrErrorLevel
+  setLevel: (level: QrErrorLevel) => void
   currentEditingItem: HistoryItem | null
   exportHistory: () => void
   importHistory: (
@@ -46,26 +63,26 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
   const [isConfirmed, setIsConfirmed] = useState(false)
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [size, setSize] = useState<QrSize>(256)
+  const [level, setLevel] = useState<QrErrorLevel>("M")
   const [currentEditingItem, setCurrentEditingItem] =
     useState<HistoryItem | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  // 计算所有标签
-  const allTags = Array.from(
-    new Set(history.flatMap((item) => item.tags || []))
-  ).sort()
+  const allTags = collectHistoryTags(history)
 
-  // 根据标签筛选历史记录
-  const filteredHistory = selectedTag
-    ? history.filter((item) => item.tags?.includes(selectedTag))
-    : history
+  const filteredHistory = filterHistoryItems(history, {
+    query: searchQuery,
+    tag: selectedTag
+  })
 
   // Initialize from localStorage
   useEffect(() => {
     const saved = localStorage.getItem("qrcode-history")
     if (saved) {
       try {
-        const parsedHistory = JSON.parse(saved)
+        const parsedHistory = mergeHistory([], JSON.parse(saved))
         setHistory(parsedHistory)
         if (parsedHistory.length > 0) {
           setText(parsedHistory[0].content)
@@ -85,25 +102,18 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
 
   const confirmInput = useCallback(() => {
     if (!text.trim()) return
+    if (calculateQrCapacity(text.trim(), level).isOverCapacity) return
+    setText(text.trim())
     setIsConfirmed(true)
 
-    setHistory((prev) => {
-      const filtered = prev.filter((item) => item.content !== text)
-      // 如果是从历史记录中选择后修改的，保留原有的tags
-      const tagsToKeep = currentEditingItem?.tags || []
-      return [
-        {
-          content: text,
-          timestamp: Date.now(),
-          tags: tagsToKeep
-        },
-        ...filtered
-      ].slice(0, 50)
-    })
+    // 从历史记录中选择后修改的，保留原有的 tags
+    setHistory((prev) =>
+      upsertHistoryItem(prev, text, { tags: currentEditingItem?.tags })
+    )
 
     // 保存后清除当前编辑项引用
     setCurrentEditingItem(null)
-  }, [text, currentEditingItem])
+  }, [text, level, currentEditingItem])
 
   const editInput = useCallback(() => {
     setIsConfirmed(false)
@@ -120,7 +130,7 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
   const deleteHistory = useCallback(
     (content: string) => {
       setHistory((prev) => {
-        const newHistory = prev.filter((item) => item.content !== content)
+        const newHistory = removeHistoryItem(prev, content)
 
         if (newHistory.length > 0) {
           setText(newHistory[0].content)
@@ -144,23 +154,11 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
   )
 
   const addTagToItem = useCallback((content: string, tag: string) => {
-    setHistory((prev) =>
-      prev.map((item) =>
-        item.content === content
-          ? { ...item, tags: [...new Set([...(item.tags || []), tag])] }
-          : item
-      )
-    )
+    setHistory((prev) => addTagToHistoryItem(prev, content, tag))
   }, [])
 
   const removeTagFromItem = useCallback((content: string, tag: string) => {
-    setHistory((prev) =>
-      prev.map((item) =>
-        item.content === content
-          ? { ...item, tags: (item.tags || []).filter((t) => t !== tag) }
-          : item
-      )
-    )
+    setHistory((prev) => removeTagFromHistoryItem(prev, content, tag))
   }, [])
 
   const exportHistory = useCallback(() => {
@@ -180,7 +178,7 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
       setHistory(merged)
 
       const added = result.imported.filter(
-        (i) => !existingContents.has(i.content)
+        (i) => !existingContents.has(i.content.trim())
       ).length
       const mergedCount = result.imported.length - added
       return { added, merged: mergedCount }
@@ -204,6 +202,12 @@ export function QrCodeProvider({ children }: { children: ReactNode }) {
     addTagToItem,
     removeTagFromItem,
     setSelectedTag,
+    searchQuery,
+    setSearchQuery,
+    size,
+    setSize,
+    level,
+    setLevel,
     currentEditingItem,
     exportHistory,
     importHistory

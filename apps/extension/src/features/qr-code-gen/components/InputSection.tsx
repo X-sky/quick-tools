@@ -1,10 +1,21 @@
+import { calculateQrCapacity } from "@quick-tools/qr-code-gen"
+
 import { CheckIcon, EditIcon, LinkIcon } from "~icons"
 
 import { useQrCode } from "../context"
 
 export function InputSection() {
-  const { text, setText, isConfirmed, confirmInput, editInput, inputRef } =
-    useQrCode()
+  const {
+    text,
+    setText,
+    isConfirmed,
+    confirmInput,
+    editInput,
+    inputRef,
+    level
+  } = useQrCode()
+  const capacity = calculateQrCapacity(text.trim(), level)
+  const cannotGenerate = !text.trim() || capacity.isOverCapacity
   const handleGetCurrentUrl = async () => {
     try {
       const [tab] = await chrome.tabs.query({
@@ -29,6 +40,17 @@ export function InputSection() {
             ref={inputRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (
+                (e.metaKey || e.ctrlKey) &&
+                e.key === "Enter" &&
+                !isConfirmed &&
+                !cannotGenerate
+              ) {
+                e.preventDefault()
+                confirmInput()
+              }
+            }}
             disabled={isConfirmed}
             placeholder="Enter text to generate QR code..."
             className={`plasmo-w-full plasmo-h-full plasmo-p-3 plasmo-rounded-xl plasmo-bg-stone-100 plasmo-border-2 plasmo-resize-none plasmo-outline-none plasmo-transition-all plasmo-duration-200 plasmo-font-medium
@@ -39,18 +61,25 @@ export function InputSection() {
               }`}
           />
           {/* Character Count or Status */}
-          <div className="plasmo-absolute plasmo-bottom-2 plasmo-right-3 plasmo-text-xs plasmo-text-stone-400 plasmo-pointer-events-none">
-            {text.length} chars
+          <div
+            className={`plasmo-absolute plasmo-bottom-2 plasmo-right-3 plasmo-text-xs plasmo-pointer-events-none ${
+              capacity.isOverCapacity
+                ? "plasmo-text-red-500"
+                : "plasmo-text-stone-400"
+            }`}>
+            {capacity.isOverCapacity
+              ? `内容过长（${capacity.charCount} / ${capacity.maxCapacity} 字节）`
+              : `${text.length} chars`}
           </div>
         </div>
 
         <div className="plasmo-w-24 plasmo-h-24 plasmo-flex plasmo-flex-col plasmo-gap-1.5">
           <button
             onClick={isConfirmed ? editInput : confirmInput}
-            disabled={!text.trim() && !isConfirmed}
+            disabled={cannotGenerate && !isConfirmed}
             className={`plasmo-flex-1 plasmo-w-full plasmo-rounded-xl plasmo-flex plasmo-flex-col plasmo-items-center plasmo-justify-center plasmo-gap-0.5 plasmo-transition-all plasmo-duration-200 plasmo-shadow-md active:plasmo-scale-[0.97] plasmo-font-semibold
             ${
-              !text.trim() && !isConfirmed
+              cannotGenerate && !isConfirmed
                 ? "plasmo-bg-stone-200 plasmo-text-stone-400 plasmo-cursor-not-allowed plasmo-shadow-none"
                 : isConfirmed
                   ? "plasmo-bg-white plasmo-border-2 plasmo-border-rose-200 plasmo-text-rose-500 hover:plasmo-border-rose-300 hover:plasmo-bg-rose-50 hover:plasmo-shadow-lg"

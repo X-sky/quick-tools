@@ -1,4 +1,8 @@
-import type { ExportSchema, TemplateStore } from "@quick-tools/qr-code-gen"
+import type { TemplateStore } from "@quick-tools/qr-code-gen"
+import {
+  buildExportSchema,
+  templateExportFilename
+} from "@quick-tools/qr-code-gen"
 
 export {
   validateExportSchema,
@@ -6,20 +10,15 @@ export {
   importFromJson
 } from "@quick-tools/qr-code-gen"
 
+export const MAX_IMPORT_FILE_SIZE = 10 * 1024 * 1024
+
 export function exportToFile(store: TemplateStore): void {
-  const schema: ExportSchema = {
-    version: 1,
-    templates: store.templates,
-    placeholderValues: store.placeholderValues,
-    combinationTags: store.combinationTags
-  }
-  const json = JSON.stringify(schema, null, 2)
+  const json = JSON.stringify(buildExportSchema(store), null, 2)
   const blob = new Blob([json], { type: "application/json" })
   const url = URL.createObjectURL(blob)
-  const date = new Date().toISOString().slice(0, 10)
   const a = document.createElement("a")
   a.href = url
-  a.download = `qrcode-templates-${date}.json`
+  a.download = templateExportFilename()
   a.click()
   URL.revokeObjectURL(url)
 }

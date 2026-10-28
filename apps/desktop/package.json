@@ -32,6 +32,7 @@
     "@quick-tools/platform": "workspace:*",
     "@quick-tools/qr-code-gen": "workspace:*",
     "@quick-tools/web-export": "workspace:*",
+    "@quick-tools/web-export-dom": "workspace:*",
     "@resvg/resvg-wasm": "^2.6.2",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.0.0",

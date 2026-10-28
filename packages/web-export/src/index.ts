@@ -6,8 +6,28 @@ export type {
   RenderJob,
   ExportStatus,
   BackgroundMessage,
-  BinaryExportFormat
+  BinaryExportFormat,
+  PngDecision,
+  RenderBlock,
+  RenderedDocument,
+  ImageAssetState,
+  PdfCaptureFormat,
+  PdfCaptureProfile,
+  RenderPage,
+  PaginatedDomPage,
+  PdfPageCapture,
+  PngPreflight,
+  RendererAssets
 } from "./types"
+export {
+  MAX_EXPORT_HISTORY,
+  addExportHistoryItem,
+  removeExportHistoryItem,
+  filterExportHistory,
+  parseBatchUrls,
+  buildPageFilename
+} from "./history"
+export type { ExportHistoryItem, BatchUrlLine } from "./history"
 export {
   sanitizeFileName,
   formatTimestamp,

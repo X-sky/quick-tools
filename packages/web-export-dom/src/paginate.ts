@@ -1,13 +1,12 @@
 import {
   CONTENT_WIDTH,
   PAGE_CONTENT_HEIGHT,
-  PAGE_FOOTER_HEIGHT,
   PAGE_HEIGHT,
   SINGLE_PNG_MAX_BYTES,
   SINGLE_PNG_MAX_DIMENSION,
   PAGE_WIDTH
-} from "./render-constants"
-import type { PngPreflight, RenderPage } from "./types"
+} from "./constants"
+import type { PngPreflight, RenderPage } from "@quick-tools/web-export"
 
 function createMeasureArticle(measurementRoot: HTMLDivElement) {
   measurementRoot.innerHTML = `
@@ -168,7 +167,9 @@ export function splitTableForPdf(
   measurementRoot: HTMLDivElement
 ) {
   const header = table.querySelector("thead")
-  const bodyRows = Array.from(table.querySelectorAll("tbody tr"))
+  const bodyRows = Array.from(
+    table.querySelectorAll<HTMLElement>("tbody tr")
+  )
 
   if (bodyRows.length <= 1) {
     return [table.cloneNode(true) as HTMLElement]
@@ -332,4 +333,3 @@ export function getPngPreflight(pages: RenderPage[]): PngPreflight {
   }
 }
 
-export const pageChromeHeight = PAGE_FOOTER_HEIGHT

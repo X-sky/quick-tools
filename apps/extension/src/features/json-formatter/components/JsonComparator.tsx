@@ -1,61 +1,12 @@
+import type { DiffLine, LineDiffResult } from "@quick-tools/json-formatter"
+import { diffLines } from "@quick-tools/json-formatter"
 import React, { useCallback, useRef, useState } from "react"
 
 import { CompareIcon } from "~icons"
 
 import { JsonEditor } from "./JsonEditor"
 
-interface DiffLine {
-  lineNumber: number
-  type: "added" | "removed" | "modified" | "unchanged"
-}
-
-interface DiffResult {
-  left: DiffLine[]
-  right: DiffLine[]
-}
-
-/**
- * 逐行比对两个 JSON 字符串
- * 使用简单的逐行比对算法，标记新增、删除、修改和未改变的行
- */
-const compareJsonLines = (leftText: string, rightText: string): DiffResult => {
-  const leftLines = leftText.split("\n")
-  const rightLines = rightText.split("\n")
-
-  const leftDiff: DiffLine[] = []
-  const rightDiff: DiffLine[] = []
-
-  const maxLen = Math.max(leftLines.length, rightLines.length)
-
-  for (let i = 0; i < maxLen; i++) {
-    const leftLine = i < leftLines.length ? leftLines[i] : null
-    const rightLine = i < rightLines.length ? rightLines[i] : null
-
-    if (leftLine === null && rightLine !== null) {
-      // 左侧缺失，右侧新增
-      rightDiff.push({ lineNumber: i + 1, type: "added" })
-    } else if (leftLine !== null && rightLine === null) {
-      // 右侧缺失，左侧删除
-      leftDiff.push({ lineNumber: i + 1, type: "removed" })
-    } else if (leftLine !== null && rightLine !== null) {
-      // 比较两行内容
-      const leftTrimmed = leftLine.trim()
-      const rightTrimmed = rightLine.trim()
-
-      if (leftTrimmed === rightTrimmed) {
-        // 相同行
-        leftDiff.push({ lineNumber: i + 1, type: "unchanged" })
-        rightDiff.push({ lineNumber: i + 1, type: "unchanged" })
-      } else {
-        // 不同行，标记为修改
-        leftDiff.push({ lineNumber: i + 1, type: "modified" })
-        rightDiff.push({ lineNumber: i + 1, type: "modified" })
-      }
-    }
-  }
-
-  return { left: leftDiff, right: rightDiff }
-}
+type DiffResult = LineDiffResult
 
 export const JsonComparator = () => {
   const [leftText, setLeftText] = useState(`{
@@ -78,7 +29,7 @@ export const JsonComparator = () => {
 
   const handleCompare = useCallback(() => {
     setIsComparing(true)
-    const result = compareJsonLines(leftText, rightText)
+    const result = diffLines(leftText, rightText)
     setDiffResult(result)
 
     // 应用装饰到编辑器

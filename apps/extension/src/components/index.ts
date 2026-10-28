@@ -11,5 +11,4 @@ export { ModeSwitch } from "~features/qr-code-gen/components/ModeSwitch"
 export { QrDisplay } from "~features/qr-code-gen/components/QrDisplay"
 
 // Web Export components
-export { ExportRendererTab } from "~features/web-export/export-renderer-tab"
-export { WebExportStatusCard } from "~features/web-export/popup-status"
+export { WebExportApp } from "~features/web-export/WebExportApp"

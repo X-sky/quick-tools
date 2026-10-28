@@ -1,6 +1,12 @@
 import { useCallback, useMemo, useState } from "react"
 
-import { parse, render } from "@quick-tools/qr-code-gen"
+import type { QrErrorLevel, QrSize, TemplateDraft } from "@quick-tools/qr-code-gen"
+import {
+  draftFromStoredValues,
+  parse,
+  render,
+  templateExportFilename
+} from "@quick-tools/qr-code-gen"
 
 import { useTemplateStore } from "../../hooks/useTemplateStore"
 import { isTauriRuntime } from "../../platform"
@@ -12,6 +18,8 @@ import { TemplateList } from "./TemplateList"
 
 export interface TemplateModeProps {
   showToast?: (message: string, type: "success" | "error" | "info", duration?: number) => void
+  size?: QrSize
+  level?: QrErrorLevel
 }
 
 const MAX_IMPORT_FILE_SIZE = 10 * 1024 * 1024
@@ -55,13 +63,19 @@ function downloadJsonFromBrowser(content: string, filename: string): void {
   URL.revokeObjectURL(url)
 }
 
-export function TemplateMode({ showToast }: TemplateModeProps = {}) {
+export function TemplateMode({
+  showToast,
+  size = 256,
+  level = "M"
+}: TemplateModeProps = {}) {
   const [isCreating, setIsCreating] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const {
     store,
     initialized,
     createTemplate,
+    updateTemplate,
     activeTemplateId,
     setActiveTemplateId,
     selections,
@@ -105,27 +119,83 @@ export function TemplateMode({ showToast }: TemplateModeProps = {}) {
   )
 
   const handleCreateNew = useCallback(() => {
+    setEditingId(null)
     setIsCreating(true)
   }, [])
 
   const handleCreateCancel = useCallback(() => {
     setIsCreating(false)
+    setEditingId(null)
   }, [])
 
+  const applyDraft = useCallback(
+    (templateId: string, draft: TemplateDraft) => {
+      for (const [ph, values] of Object.entries(draft.values)) {
+        for (const v of values) addPlaceholderValue(templateId, ph, v)
+      }
+      for (const [ph, def] of Object.entries(draft.defaults)) {
+        if (def) setDefaultValue(templateId, ph, def)
+      }
+    },
+    [addPlaceholderValue, setDefaultValue]
+  )
+
   const handleCreateSubmit = useCallback(
-    (name: string, templateString: string) => {
-      const result = createTemplate(name, templateString)
+    (name: string, templateString: string, draft: TemplateDraft) => {
+      const result = editingId
+        ? updateTemplate(editingId, { name, templateString })
+        : createTemplate(name, templateString)
       if (!result.ok) {
         showToast?.(result.error, "error", 5000)
         return
       }
 
+      applyDraft(result.value.id, draft)
+      if (editingId) {
+        // Re-activate so defaults for new placeholders are applied.
+        setActiveTemplateId(null)
+      }
       setActiveTemplateId(result.value.id)
       setIsCreating(false)
-      showToast?.("模板已创建", "success")
+      setEditingId(null)
+      showToast?.(editingId ? "模板已更新" : "模板已创建", "success")
     },
-    [createTemplate, setActiveTemplateId, showToast]
+    [editingId, updateTemplate, createTemplate, applyDraft, setActiveTemplateId, showToast]
   )
+
+  const handleEdit = useCallback((id: string) => {
+    setIsCreating(false)
+    setEditingId(id)
+  }, [])
+
+  const editingTemplate = useMemo(
+    () => store.templates.find((t) => t.id === editingId) ?? null,
+    [store.templates, editingId]
+  )
+
+  const formElement =
+    isCreating || editingTemplate ? (
+      <CreateTemplateForm
+        key={editingTemplate?.id ?? "new"}
+        onSubmit={handleCreateSubmit}
+        onCancel={handleCreateCancel}
+        existingTemplates={store.templates}
+        initialValues={
+          editingTemplate
+            ? {
+                id: editingTemplate.id,
+                name: editingTemplate.name,
+                templateString: editingTemplate.templateString,
+                draft: draftFromStoredValues(
+                  store.placeholderValues.filter(
+                    (pv) => pv.templateId === editingTemplate.id
+                  )
+                )
+              }
+            : undefined
+        }
+      />
+    ) : null
 
   const handleImport = useCallback(async () => {
     try {
@@ -179,11 +249,11 @@ export function TemplateMode({ showToast }: TemplateModeProps = {}) {
 
   const handleExport = useCallback(async () => {
     try {
-      const now = new Date()
-      const yyyy = now.getFullYear()
-      const mm = String(now.getMonth() + 1).padStart(2, "0")
-      const dd = String(now.getDate()).padStart(2, "0")
-      const defaultPath = `qrcode-templates-${yyyy}-${mm}-${dd}.json`
+      if (store.templates.length === 0) {
+        showToast?.("暂无可导出的模板", "info")
+        return
+      }
+      const defaultPath = templateExportFilename()
 
       const json = exportToJson()
 
@@ -210,7 +280,7 @@ export function TemplateMode({ showToast }: TemplateModeProps = {}) {
         5000
       )
     }
-  }, [exportToJson, showToast])
+  }, [exportToJson, showToast, store.templates.length])
 
   if (!initialized) {
     return (
@@ -234,20 +304,13 @@ export function TemplateMode({ showToast }: TemplateModeProps = {}) {
           <br />
           模板支持 {"{"} name {"}"} 占位符语法。
         </p>
-        {isCreating && (
-          <div className="w-full max-w-2xl">
-            <CreateTemplateForm
-              onSubmit={handleCreateSubmit}
-              onCancel={handleCreateCancel}
-              existingNames={store.templates.map((template) => template.name)}
-            />
-          </div>
-        )}
+        {formElement && <div className="w-full max-w-2xl">{formElement}</div>}
         <TemplateList
           templates={store.templates}
           activeTemplateId={activeTemplateId}
           onSelect={handleSelect}
           onCreate={handleCreateNew}
+          onEdit={handleEdit}
           onDelete={deleteTemplate}
           onImport={handleImport}
           onExport={handleExport}
@@ -260,19 +323,14 @@ export function TemplateMode({ showToast }: TemplateModeProps = {}) {
     <div className="flex flex-1 gap-4 overflow-hidden">
       {/* Left Column */}
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
-        {isCreating && (
-          <CreateTemplateForm
-            onSubmit={handleCreateSubmit}
-            onCancel={handleCreateCancel}
-            existingNames={store.templates.map((template) => template.name)}
-          />
-        )}
+        {formElement}
 
         <TemplateList
           templates={store.templates}
           activeTemplateId={activeTemplateId}
           onSelect={handleSelect}
           onCreate={handleCreateNew}
+          onEdit={handleEdit}
           onDelete={deleteTemplate}
           onImport={handleImport}
           onExport={handleExport}
@@ -311,6 +369,15 @@ export function TemplateMode({ showToast }: TemplateModeProps = {}) {
           finalString={finalString}
           placeholderNames={parseResult?.placeholderNames ?? []}
           selections={selections}
+          placeholderValues={
+            activeTemplate
+              ? store.placeholderValues.filter(
+                  (pv) => pv.templateId === activeTemplate.id
+                )
+              : []
+          }
+          size={size}
+          level={level}
         />
 
         {activeTemplate && (

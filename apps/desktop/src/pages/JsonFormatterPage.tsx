@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   formatJson,
   minifyJson,
-  parseJsonOrJsObject
+  parseJsonOrJsObject,
+  sortJsonKeys
 } from "@quick-tools/json-formatter"
 import { getPlatform } from "@quick-tools/platform"
 import type { Diagnostic } from "@codemirror/lint"
@@ -15,7 +16,9 @@ import {
   FolderOpen,
   FloppyDisk,
   Copy,
-  ClipboardText
+  ClipboardText,
+  SortAscending,
+  Trash
 } from "@phosphor-icons/react"
 
 import { CodeMirrorEditor } from "~/components/CodeMirrorEditor"
@@ -26,6 +29,7 @@ import type { CommandAction } from "~/components/shell/CommandBar"
 import { useDebounce } from "~/hooks/useDebounce"
 import { useToast } from "~/hooks/useToast"
 import { openJsonFile } from "~/platform/file-opener"
+import { isTauriRuntime } from "~/platform"
 import type { PageShellProps } from "~/types/page-shell"
 
 type EditorMode = "format" | "diff"
@@ -45,6 +49,7 @@ export default function JsonFormatterPage({
 
   const { toast, showToast, hideToast } = useToast()
   const containerRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const debouncedInput = useDebounce(input, 300)
 
@@ -119,37 +124,91 @@ export default function JsonFormatterPage({
     }
   }, [input])
 
-  // Format action
-  const handleFormat = useCallback(() => {
-    if (!input.trim()) return
-    try {
-      const parsed = parseJsonOrJsObject(input)
-      const formatted = formatJson(parsed)
-      setOutput(formatted)
-      setError(null)
-      notify("Formatted successfully", "success")
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "格式化失败"
-      setError(msg)
-      notify(msg, "error")
-    }
-  }, [input, notify])
+  // Format / minify / sort share one flow. In format mode the result goes to
+  // the output pane; in diff mode both sides are rewritten in place.
+  const applyTransform = useCallback(
+    (
+      transform: (value: unknown) => string,
+      successMessage: string,
+      fallbackError: string
+    ) => {
+      if (mode === "diff") {
+        if (!diffLeft.trim() && !diffRight.trim()) return
+        try {
+          if (diffLeft.trim()) {
+            setDiffLeft(transform(parseJsonOrJsObject(diffLeft)))
+          }
+          if (diffRight.trim()) {
+            setDiffRight(transform(parseJsonOrJsObject(diffRight)))
+          }
+          setError(null)
+          notify(successMessage, "success")
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : fallbackError
+          setError(msg)
+          notify(msg, "error")
+        }
+        return
+      }
+      if (!input.trim()) return
+      try {
+        setOutput(transform(parseJsonOrJsObject(input)))
+        setError(null)
+        notify(successMessage, "success")
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : fallbackError
+        setError(msg)
+        notify(msg, "error")
+      }
+    },
+    [mode, diffLeft, diffRight, input, notify]
+  )
 
-  // Minify action
+  const handleFormat = useCallback(() => {
+    applyTransform((v) => formatJson(v), "Formatted successfully", "格式化失败")
+  }, [applyTransform])
+
   const handleMinify = useCallback(() => {
-    if (!input.trim()) return
-    try {
-      const parsed = parseJsonOrJsObject(input)
-      const minified = minifyJson(parsed)
-      setOutput(minified)
-      setError(null)
-      notify("Minified successfully", "success")
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "压缩失败"
-      setError(msg)
-      notify(msg, "error")
+    applyTransform((v) => minifyJson(v), "Minified successfully", "压缩失败")
+  }, [applyTransform])
+
+  const handleSort = useCallback(() => {
+    applyTransform(
+      (v) => formatJson(sortJsonKeys(v)),
+      "已按 key 排序",
+      "排序失败"
+    )
+  }, [applyTransform])
+
+  const handleClear = useCallback(() => {
+    if (mode === "diff") {
+      setDiffLeft("")
+      setDiffRight("")
+    } else {
+      setInput("")
+      setOutput("")
+      setFilePath(null)
     }
-  }, [input, notify])
+    setError(null)
+  }, [mode])
+
+  // Text loaded from a file / clipboard goes to the input pane; in diff mode
+  // it fills the left side first, then the right side.
+  const loadText = useCallback(
+    (text: string, name: string | null) => {
+      if (mode === "diff") {
+        if (!diffLeft.trim()) {
+          setDiffLeft(text)
+        } else {
+          setDiffRight(text)
+        }
+        return
+      }
+      setInput(text)
+      setFilePath(name)
+    },
+    [mode, diffLeft]
+  )
 
   // Toggle diff mode
   const handleToggleDiff = useCallback(() => {
@@ -165,19 +224,46 @@ export default function JsonFormatterPage({
 
   // Open file
   const handleOpenFile = useCallback(async () => {
+    if (!isTauriRuntime()) {
+      // Browser fallback: trigger a hidden <input type="file"> so the user gets
+      // the native file picker (Tauri not available outside the desktop shell).
+      fileInputRef.current?.click()
+      return
+    }
     const result = await openJsonFile()
     if (result.ok) {
-      setInput(result.value)
-      setFilePath(null)
+      loadText(result.value, null)
       notify("文件已加载", "success")
     } else if (result.error.category !== "cancelled") {
       notify(result.error.message, "error")
     }
-  }, [notify])
+  }, [notify, loadText])
+
+  const handleHiddenFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      // Reset the input so the same file can be picked again later.
+      e.target.value = ""
+      if (!file) return
+      try {
+        const text = await file.text()
+        loadText(text, file.name)
+        notify("文件已加载", "success")
+      } catch {
+        notify("读取文件失败", "error")
+      }
+    },
+    [notify, loadText]
+  )
+
+  // Content used by save / copy: the formatted result in format mode, the
+  // right-hand (or only filled) side in diff mode.
+  const currentContent =
+    mode === "diff" ? diffRight || diffLeft : output || input
 
   // Save file
   const handleSaveFile = useCallback(async () => {
-    const content = output || input
+    const content = currentContent
     if (!content.trim()) {
       notify("没有可保存的内容", "info")
       return
@@ -193,11 +279,11 @@ export default function JsonFormatterPage({
     } else if (result.error.category !== "cancelled") {
       notify(result.error.message, "error")
     }
-  }, [output, input, notify])
+  }, [currentContent, notify])
 
   // Copy result
   const handleCopyResult = useCallback(async () => {
-    const content = output || input
+    const content = currentContent
     if (!content.trim()) {
       notify("没有可复制的内容", "info")
       return
@@ -209,14 +295,14 @@ export default function JsonFormatterPage({
     } else {
       notify("剪贴板写入失败", "error")
     }
-  }, [output, input, notify])
+  }, [currentContent, notify])
 
   // Paste from clipboard
   const handlePasteFromClipboard = useCallback(async () => {
     try {
       const text = await navigator.clipboard.readText()
       if (text) {
-        setInput(text)
+        loadText(text, null)
         notify("已从剪贴板粘贴", "success")
       } else {
         notify("剪贴板为空", "info")
@@ -224,7 +310,7 @@ export default function JsonFormatterPage({
     } catch {
       notify("读取剪贴板失败", "error")
     }
-  }, [notify])
+  }, [notify, loadText])
 
   // Ctrl+S / Cmd+S shortcut
   useEffect(() => {
@@ -264,8 +350,7 @@ export default function JsonFormatterPage({
       if (path) {
         try {
           const content = await readTextFile(path)
-          setInput(content)
-          setFilePath(path)
+          loadText(content, path)
           notify("文件已加载", "success")
         } catch {
           notify("读取文件失败", "error")
@@ -276,8 +361,7 @@ export default function JsonFormatterPage({
         reader.onload = (event) => {
           const content = event.target?.result
           if (typeof content === "string") {
-            setInput(content)
-            setFilePath(file.name)
+            loadText(content, file.name)
             notify("文件已加载", "success")
           }
         }
@@ -294,11 +378,14 @@ export default function JsonFormatterPage({
       container.removeEventListener("dragover", handleDragOver)
       container.removeEventListener("drop", handleDrop)
     }
-  }, [notify])
+  }, [notify, loadText])
 
   // ─── Expose CommandBar actions to the shell ───────────────────────────────
 
-  const hasContent = input.trim().length > 0
+  const hasContent =
+    mode === "diff"
+      ? diffLeft.trim().length > 0 || diffRight.trim().length > 0
+      : input.trim().length > 0
 
   const commandActions: CommandAction[] = useMemo(
     () => [
@@ -319,6 +406,14 @@ export default function JsonFormatterPage({
         group: "primary",
         disabled: !hasContent,
         onExecute: handleMinify
+      },
+      {
+        id: "json-sort",
+        icon: SortAscending,
+        label: "按 key 排序",
+        group: "primary",
+        disabled: !hasContent,
+        onExecute: handleSort
       },
       {
         id: "json-diff",
@@ -369,6 +464,14 @@ export default function JsonFormatterPage({
         onExecute: () => {
           void handlePasteFromClipboard()
         }
+      },
+      {
+        id: "json-clear",
+        icon: Trash,
+        label: "清空",
+        group: "auxiliary",
+        disabled: !hasContent,
+        onExecute: handleClear
       }
     ],
     [
@@ -376,6 +479,8 @@ export default function JsonFormatterPage({
       mode,
       handleFormat,
       handleMinify,
+      handleSort,
+      handleClear,
       handleToggleDiff,
       handleOpenFile,
       handleSaveFile,
@@ -414,6 +519,18 @@ export default function JsonFormatterPage({
 
   return (
     <div ref={containerRef} className="flex h-full flex-col">
+      {/* Hidden file input used by the browser-mode "Open File" path. The
+       * Tauri path uses `openJsonFile()` which calls into tauri-plugin-dialog;
+       * in the browser we trigger this native picker instead. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        onChange={handleHiddenFileChange}
+        className="hidden"
+        aria-hidden="true"
+        tabIndex={-1}
+      />
       {/* Main Editor Area */}
       <div className="min-h-0 flex-1">
         {mode === "format" ? (
@@ -437,7 +554,12 @@ export default function JsonFormatterPage({
             }
           />
         ) : (
-          <DiffViewer left={diffLeft} right={diffRight} />
+          <DiffViewer
+            left={diffLeft}
+            right={diffRight}
+            onLeftChange={setDiffLeft}
+            onRightChange={setDiffRight}
+          />
         )}
       </div>
 

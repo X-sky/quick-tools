@@ -1,6 +1,8 @@
 import { useCallback, useRef } from "react"
 
 import { getPlatform } from "@quick-tools/platform"
+import type { PlaceholderValueEntry, QrErrorLevel, QrSize } from "@quick-tools/qr-code-gen"
+import { qrImageFilename } from "@quick-tools/qr-code-gen"
 
 import { QrRenderer } from "~/components/QrRenderer"
 import { useToast } from "~/hooks/useToast"
@@ -12,14 +14,17 @@ interface FinalStringDisplayProps {
   finalString: string | null
   placeholderNames: string[]
   selections: Record<string, string>
-  size?: 128 | 256 | 512
-  level?: "L" | "M" | "Q" | "H"
+  /** Stored candidates of the active template, used to explain why nothing renders. */
+  placeholderValues?: PlaceholderValueEntry[]
+  size?: QrSize
+  level?: QrErrorLevel
 }
 
 export function FinalStringDisplay({
   finalString,
   placeholderNames,
   selections,
+  placeholderValues = [],
   size = 256,
   level = "M"
 }: FinalStringDisplayProps) {
@@ -35,6 +40,18 @@ export function FinalStringDisplay({
     : null
 
   const isOverCapacity = capacityInfo?.isOverCapacity ?? false
+
+  const missingCandidates = placeholderNames.find(
+    (name) =>
+      !selections[name] &&
+      !(placeholderValues.find((pv) => pv.placeholderName === name)?.values.length)
+  )
+
+  const handleCopyText = useCallback(async () => {
+    if (!finalString) return
+    const result = await getPlatform().clipboard.writeText(finalString)
+    showToast(result.ok ? "已复制最终内容" : "剪贴板写入失败", result.ok ? "success" : "error")
+  }, [finalString, showToast])
 
   const handleExportPng = useCallback(async () => {
     const svgEl = svgContainerRef.current?.querySelector("svg")
@@ -73,7 +90,7 @@ export function FinalStringDisplay({
       const platform = getPlatform()
       const result = await platform.fileDownloader.downloadWithDialog(
         pngData,
-        `qr-template-${finalString.slice(0, 20).replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, "_")}.png`,
+        qrImageFilename(finalString, "png", "qr-template"),
         "image/png"
       )
       if (result.ok) {
@@ -95,7 +112,7 @@ export function FinalStringDisplay({
       const platform = getPlatform()
       const result = await platform.fileDownloader.downloadWithDialog(
         svgData,
-        `qr-template-${finalString.slice(0, 20).replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, "_")}.svg`,
+        qrImageFilename(finalString, "svg", "qr-template"),
         "image/svg+xml"
       )
       if (result.ok) {
@@ -147,7 +164,7 @@ export function FinalStringDisplay({
       if (result.ok) {
         showToast("已复制到剪贴板", "success")
       } else {
-        showToast("剪贴板写入失败，请检查权限", "error")
+        showToast(`剪贴板写入失败：${result.error.message}`, "error")
       }
     } catch {
       showToast("复制到剪贴板失败", "error")
@@ -162,18 +179,29 @@ export function FinalStringDisplay({
 
       {/* Final String Display */}
       <div className="mb-3">
-        <label className="mb-1 block text-xs text-stone-400 dark:text-stone-500">
-          最终内容
-        </label>
+        <div className="mb-1 flex items-center justify-between">
+          <label className="block text-xs text-stone-400 dark:text-stone-500">
+            最终内容
+          </label>
+          <button
+            type="button"
+            onClick={() => void handleCopyText()}
+            disabled={!finalString}
+            className="rounded-md px-2 py-0.5 text-xs text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-stone-400 dark:hover:bg-stone-700">
+            复制文本
+          </button>
+        </div>
         {finalString ? (
           <p className="break-all rounded-lg bg-stone-50 px-3 py-2 text-sm text-stone-700 dark:bg-stone-900 dark:text-stone-300">
             {finalString}
           </p>
         ) : (
           <p className="rounded-lg bg-stone-50 px-3 py-2 text-sm text-stone-400 italic dark:bg-stone-900 dark:text-stone-500">
-            {!allSelected
-              ? "请为所有占位符选择候选值"
-              : "暂无内容"}
+            {missingCandidates
+              ? `请先为占位符 {${missingCandidates}} 添加候选值`
+              : !allSelected
+                ? "请为所有占位符选择候选值"
+                : "暂无内容"}
           </p>
         )}
       </div>

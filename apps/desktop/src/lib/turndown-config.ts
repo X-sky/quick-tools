@@ -1,14 +1,1 @@
-import TurndownService from "turndown"
-import { gfm } from "turndown-plugin-gfm"
-
-export function createTurndownService(): TurndownService {
-  const service = new TurndownService({
-    headingStyle: "atx",
-    codeBlockStyle: "fenced",
-    bulletListMarker: "-",
-    emDelimiter: "*",
-    strongDelimiter: "**"
-  })
-  service.use(gfm)
-  return service
-}
+export { createTurndownService } from "@quick-tools/web-export-dom"
