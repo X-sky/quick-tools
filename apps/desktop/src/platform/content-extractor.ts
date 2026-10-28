@@ -5,20 +5,9 @@ import type {
 } from "@quick-tools/platform"
 import { createErrorResult, createSuccess } from "@quick-tools/platform"
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http"
-import { Readability } from "@mozilla/readability"
-
-import { createTurndownService } from "~/lib/turndown-config"
+import { ExtractionError, extractFromHtml } from "@quick-tools/web-export-dom"
 
 const DEFAULT_TIMEOUT_MS = 30_000
-
-function parseHtmlToDocument(html: string, url: string): Document {
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(html, "text/html")
-  const base = doc.createElement("base")
-  base.href = url
-  doc.head.appendChild(base)
-  return doc
-}
 
 export const tauriContentExtractor: ContentExtractor = {
   async extractFromCurrentPage(): Promise<PlatformResult<ExtractedContent>> {
@@ -53,30 +42,11 @@ export const tauriContentExtractor: ContentExtractor = {
       }
 
       const html = await response.text()
-      const doc = parseHtmlToDocument(html, url)
-      const reader = new Readability(doc)
-      const article = reader.parse()
-
-      if (!article) {
-        return createErrorResult(
-          "unknown",
-          "当前页面正文提取失败。请在普通网页中重试。"
-        )
-      }
-
-      const turndown = createTurndownService()
-      const markdown = turndown.turndown(article.content || "")
-
-      return createSuccess({
-        title: article.title || doc.title || url,
-        url,
-        byline: article.byline || undefined,
-        excerpt: article.excerpt || undefined,
-        capturedAt: new Date().toISOString(),
-        markdown,
-        plainText: article.textContent || ""
-      })
+      return createSuccess(extractFromHtml(html, url))
     } catch (err) {
+      if (err instanceof ExtractionError) {
+        return createErrorResult("unknown", err.message)
+      }
       if (err instanceof Error && err.name === "AbortError") {
         return createErrorResult("timeout", `Request to ${url} timed out`)
       }

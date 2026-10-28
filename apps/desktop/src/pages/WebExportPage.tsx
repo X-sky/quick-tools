@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { getPlatform } from "@quick-tools/platform"
-import type { ExportFormat, MarkdownExportSource } from "@quick-tools/web-export"
-import { buildDownloadFilename, buildFilenameBase, buildMarkdownDocument } from "@quick-tools/web-export"
-import { open } from "@tauri-apps/plugin-dialog"
-import { writeFile } from "@tauri-apps/plugin-fs"
+import type {
+  ExportFormat,
+  ExportHistoryItem,
+  MarkdownExportSource,
+  PngPreflight
+} from "@quick-tools/web-export"
+import { filterExportHistory } from "@quick-tools/web-export"
+import type { OversizedPngChoice } from "@quick-tools/web-export-dom"
+import {
+  describeExportResult,
+  ExportCancelledError,
+  exportArticle,
+  renderArticlePng
+} from "@quick-tools/web-export-dom"
 import {
   Globe,
   FileText,
@@ -20,39 +30,15 @@ import { MarkdownPreview } from "~/components/MarkdownPreview"
 import { ResizableSplitPane } from "~/components/ResizableSplitPane"
 import { Toast } from "~/components/Toast"
 import type { CommandAction } from "~/components/shell/CommandBar"
-import { useHistory } from "~/hooks/useHistory"
+import { useExportHistory } from "~/hooks/useExportHistory"
 import { useToast } from "~/hooks/useToast"
-import { renderToPdf, renderToPng } from "~/lib/pdf-png-renderer"
-import { tauriContentExtractor } from "~/platform/content-extractor"
+import { getImageFetcher, saveExportFiles, writeFilesToFolder } from "~/lib/web-export-io"
+import { isTauriRuntime } from "~/platform"
 import type { PageShellProps } from "~/types/page-shell"
 
-interface ExportHistoryItem {
-  url: string
-  title: string
-  format: ExportFormat
-  timestamp: number
-  content: string
-}
-
-async function loadFonts(): Promise<{ body: ArrayBuffer; mono: ArrayBuffer }> {
-  // Load fonts from the extension assets bundled in the public folder
-  // Fallback: use fetch to load from a known path or generate minimal placeholder
-  try {
-    const [bodyRes, monoRes] = await Promise.all([
-      fetch(encodeURI("/fonts/Arial Unicode.ttf.fixed.ttf")),
-      fetch(encodeURI("/fonts/Courier New.ttf.fixed.ttf"))
-    ])
-    if (bodyRes.ok && monoRes.ok) {
-      return {
-        body: await bodyRes.arrayBuffer(),
-        mono: await monoRes.arrayBuffer()
-      }
-    }
-  } catch {
-    // fallback below
-  }
-  // Minimal fallback: create empty ArrayBuffers (rendering will be degraded)
-  return { body: new ArrayBuffer(0), mono: new ArrayBuffer(0) }
+interface OversizedPrompt {
+  preflight: PngPreflight
+  resolve: (choice: OversizedPngChoice) => void
 }
 
 export default function WebExportPage({
@@ -66,19 +52,16 @@ export default function WebExportPage({
   // Single mode state
   const [url, setUrl] = useState("")
   const [loading, setLoading] = useState(false)
+  const [busyMessage, setBusyMessage] = useState<string | null>(null)
   const [source, setSource] = useState<MarkdownExportSource | null>(null)
   const [previewMode, setPreviewMode] = useState<"rendered" | "source">("rendered")
+  const [oversizedPrompt, setOversizedPrompt] = useState<OversizedPrompt | null>(null)
 
   // Batch mode state
   const [batchProgress, setBatchProgress] = useState<BatchExportProgress | null>(null)
 
   // History
-  const {
-    items: historyItems,
-    add: addHistory,
-    remove: removeHistory,
-    search: searchHistory
-  } = useHistory<ExportHistoryItem>({ storageKey: "web-export-history" })
+  const history = useExportHistory()
   const [historySearchQuery, setHistorySearchQuery] = useState("")
 
   // Toast
@@ -99,160 +82,122 @@ export default function WebExportPage({
     [onToast, showToast]
   )
 
-  const filteredHistory = historySearchQuery
-    ? searchHistory(historySearchQuery)
-    : historyItems
+  const filteredHistory = useMemo(
+    () => filterExportHistory(history.items, historySearchQuery),
+    [history.items, historySearchQuery]
+  )
+
+  const askOversizedPng = useCallback(
+    (preflight: PngPreflight) =>
+      new Promise<OversizedPngChoice>((resolve) => {
+        setOversizedPrompt({ preflight, resolve })
+      }),
+    []
+  )
+
+  const answerOversized = useCallback(
+    (choice: OversizedPngChoice) => {
+      oversizedPrompt?.resolve(choice)
+      setOversizedPrompt(null)
+    },
+    [oversizedPrompt]
+  )
+
+  const recordHistory = useCallback(
+    (article: MarkdownExportSource, format: ExportFormat) =>
+      history.add({
+        url: article.url,
+        title: article.title,
+        format,
+        timestamp: Date.now(),
+        content: `${article.title} ${article.url}`
+      }),
+    [history]
+  )
 
   // --- Single mode handlers ---
 
-  const handleExtract = useCallback(async () => {
-    if (!url.trim()) return
-    setLoading(true)
-    setSource(null)
+  const extract = useCallback(
+    async (targetUrl: string) => {
+      if (!targetUrl.trim()) return
+      setLoading(true)
+      setSource(null)
 
-    const result = await tauriContentExtractor.extractFromUrl(url.trim())
-
-    if (!result.ok) {
-      if (result.error.category === "timeout") {
-        notify("请求超时，请检查网络连接后重试", "error")
-      } else {
-        notify(`页面内容提取失败: ${result.error.message}`, "error")
-      }
+      // Routed through the platform: Tauri uses plugin-http, the browser
+      // fallback uses fetch and may hit CORS on some sites.
+      const result = await getPlatform().contentExtractor.extractFromUrl(
+        targetUrl.trim()
+      )
       setLoading(false)
-      return
-    }
 
-    setSource(result.value as MarkdownExportSource)
-    setLoading(false)
-    notify("内容提取成功", "success")
-  }, [url, notify])
-
-  const handleExportMarkdown = useCallback(async () => {
-    if (!source) return
-
-    const markdown = buildMarkdownDocument(source)
-    const filenameBase = buildFilenameBase(source)
-    const filename = buildDownloadFilename(filenameBase, "markdown")
-
-    const platform = getPlatform()
-    const result = await platform.fileDownloader.downloadWithDialog(
-      markdown,
-      filename,
-      "text/markdown"
-    )
-
-    if (result.ok) {
-      notify("Markdown 导出成功", "success")
-      await addHistory({
-        url: source.url,
-        title: source.title,
-        format: "markdown",
-        timestamp: Date.now(),
-        content: source.title + " " + source.url
-      })
-    } else if (result.error.category !== "cancelled") {
-      notify(`导出失败: ${result.error.message}`, "error")
-    }
-  }, [source, notify, addHistory])
-
-  const handleExportPdf = useCallback(async () => {
-    if (!source) return
-
-    try {
-      const fonts = await loadFonts()
-      const pdfBytes = await renderToPdf(
-        source.markdown || source.plainText || "",
-        source,
-        { width: 794, pageSize: "A4", fonts }
-      )
-
-      const filenameBase = buildFilenameBase(source)
-      const filename = buildDownloadFilename(filenameBase, "pdf")
-
-      const platform = getPlatform()
-      const result = await platform.fileDownloader.downloadWithDialog(
-        pdfBytes,
-        filename,
-        "application/pdf"
-      )
-
-      if (result.ok) {
-        notify("PDF 导出成功", "success")
-        await addHistory({
-          url: source.url,
-          title: source.title,
-          format: "pdf",
-          timestamp: Date.now(),
-          content: source.title + " " + source.url
-        })
-      } else if (result.error.category !== "cancelled") {
-        notify(`导出失败: ${result.error.message}`, "error")
+      if (!result.ok) {
+        if (result.error.category === "timeout") {
+          notify("请求超时，请检查网络连接后重试", "error")
+        } else {
+          notify(`页面内容提取失败: ${result.error.message}`, "error")
+        }
+        return
       }
-    } catch (err) {
-      notify(
-        `渲染失败: ${err instanceof Error ? err.message : String(err)}`,
-        "error"
-      )
-    }
-  }, [source, notify, addHistory])
 
-  const handleExportPng = useCallback(async () => {
-    if (!source) return
+      setSource(result.value as MarkdownExportSource)
+      notify("内容提取成功", "success")
+    },
+    [notify]
+  )
 
-    try {
-      const fonts = await loadFonts()
-      const pngBytes = await renderToPng(
-        source.markdown || source.plainText || "",
-        source,
-        { width: 800, fonts }
-      )
+  const handleExtract = useCallback(() => extract(url), [extract, url])
 
-      const filenameBase = buildFilenameBase(source)
-      const filename = buildDownloadFilename(filenameBase, "png")
+  const busyRef = useRef(false)
 
-      const platform = getPlatform()
-      const result = await platform.fileDownloader.downloadWithDialog(
-        pngBytes,
-        filename,
-        "image/png"
-      )
-
-      if (result.ok) {
-        notify("PNG 导出成功", "success")
-        await addHistory({
-          url: source.url,
-          title: source.title,
-          format: "png",
-          timestamp: Date.now(),
-          content: source.title + " " + source.url
+  const handleExport = useCallback(
+    async (format: ExportFormat) => {
+      if (!source || busyRef.current) return
+      busyRef.current = true
+      try {
+        const result = await exportArticle(source, format, {
+          fetchImage: getImageFetcher(),
+          onProgress: setBusyMessage,
+          onOversizedPng: askOversizedPng
         })
-      } else if (result.error.category !== "cancelled") {
-        notify(`导出失败: ${result.error.message}`, "error")
+        setBusyMessage(null)
+        const saved = await saveExportFiles(result.files)
+        if (saved.status === "saved") {
+          notify(describeExportResult(result), result.imageFailures > 0 ? "warning" : "success")
+          await recordHistory(source, result.format)
+        } else if (saved.status === "error") {
+          notify(`导出失败: ${saved.message}`, "error")
+        }
+      } catch (err) {
+        if (!(err instanceof ExportCancelledError)) {
+          notify(
+            `渲染失败: ${err instanceof Error ? err.message : String(err)}`,
+            "error"
+          )
+        }
+      } finally {
+        busyRef.current = false
+        setBusyMessage(null)
       }
-    } catch (err) {
-      notify(
-        `渲染失败: ${err instanceof Error ? err.message : String(err)}`,
-        "error"
-      )
-    }
-  }, [source, notify, addHistory])
+    },
+    [source, askOversizedPng, notify, recordHistory]
+  )
 
   const handleCopyPng = useCallback(async () => {
-    if (!source) return
-
+    if (!source || busyRef.current) return
+    busyRef.current = true
     try {
-      const fonts = await loadFonts()
-      const pngBytes = await renderToPng(
-        source.markdown || source.plainText || "",
-        source,
-        { width: 800, fonts }
-      )
-
-      const platform = getPlatform()
-      const result = await platform.clipboard.writeImage(pngBytes, "image/png")
-
+      const { bytes, imageFailures } = await renderArticlePng(source, {
+        fetchImage: getImageFetcher(),
+        onProgress: setBusyMessage
+      })
+      const result = await getPlatform().clipboard.writeImage(bytes, "image/png")
       if (result.ok) {
-        notify("PNG 已复制到剪贴板", "success")
+        notify(
+          imageFailures > 0
+            ? "PNG 已复制到剪贴板，部分图片未成功嵌入"
+            : "PNG 已复制到剪贴板",
+          imageFailures > 0 ? "warning" : "success"
+        )
       } else {
         notify("剪贴板写入失败，请检查权限", "error")
       }
@@ -261,6 +206,9 @@ export default function WebExportPage({
         `渲染失败: ${err instanceof Error ? err.message : String(err)}`,
         "error"
       )
+    } finally {
+      busyRef.current = false
+      setBusyMessage(null)
     }
   }, [source, notify])
 
@@ -268,88 +216,59 @@ export default function WebExportPage({
 
   const handleBatchExport = useCallback(
     async (urls: string[], format: ExportFormat) => {
-      // Select output folder
-      const folderPath = await open({ directory: true, title: "选择导出目录" })
-      if (!folderPath) return
+      const platform = getPlatform()
+      const isTauri = isTauriRuntime()
+
+      let folderPath: string | null = null
+      if (isTauri) {
+        const { open: openDialog } = await import("@tauri-apps/plugin-dialog")
+        const picked = await openDialog({ directory: true, title: "选择导出目录" })
+        if (!picked || Array.isArray(picked)) return
+        folderPath = picked
+      } else {
+        notify("浏览器模式不支持选择目录，文件将下载到默认下载目录。", "info")
+      }
 
       const total = urls.length
       const results: BatchExportResult[] = []
-
-      setBatchProgress({
-        total,
-        completed: 0,
-        currentUrl: urls[0] || "",
-        results: []
-      })
+      setBatchProgress({ total, completed: 0, currentUrl: urls[0] || "", results: [] })
 
       for (let i = 0; i < total; i++) {
         const currentUrl = urls[i]!
-        setBatchProgress((prev) => prev ? {
-          ...prev,
-          currentUrl,
-          completed: i
-        } : null)
+        setBatchProgress((prev) =>
+          prev ? { ...prev, currentUrl, completed: i } : null
+        )
 
         try {
-          const extractResult = await tauriContentExtractor.extractFromUrl(currentUrl)
-
-          if (!extractResult.ok) {
-            results.push({
-              url: currentUrl,
-              success: false,
-              error: extractResult.error.message
-            })
+          const extracted = await platform.contentExtractor.extractFromUrl(currentUrl)
+          if (!extracted.ok) {
+            results.push({ url: currentUrl, success: false, error: extracted.error.message })
             continue
           }
+          const article = extracted.value as MarkdownExportSource
+          // Batch runs unattended: oversized PNGs are written as paged files.
+          const exported = await exportArticle(article, format, {
+            fetchImage: getImageFetcher()
+          })
 
-          const extractedSource = extractResult.value as MarkdownExportSource
-          const filenameBase = buildFilenameBase(extractedSource)
-          let fileData: Uint8Array | string
-          let filename: string
-
-          if (format === "markdown") {
-            fileData = buildMarkdownDocument(extractedSource)
-            filename = buildDownloadFilename(filenameBase, "markdown")
+          if (folderPath) {
+            const saved = await writeFilesToFolder(folderPath, exported.files)
+            if (saved.status === "error") throw new Error(saved.message)
           } else {
-            const fonts = await loadFonts()
-            if (format === "pdf") {
-              fileData = await renderToPdf(
-                extractedSource.markdown || extractedSource.plainText || "",
-                extractedSource,
-                { width: 794, pageSize: "A4", fonts }
+            for (const file of exported.files) {
+              const dl = await platform.fileDownloader.download(
+                file.bytes,
+                file.filename,
+                file.mimeType
               )
-              filename = buildDownloadFilename(filenameBase, "pdf")
-            } else {
-              fileData = await renderToPng(
-                extractedSource.markdown || extractedSource.plainText || "",
-                extractedSource,
-                { width: 800, fonts }
-              )
-              filename = buildDownloadFilename(filenameBase, "png")
+              if (!dl.ok && dl.error.category !== "cancelled") {
+                throw new Error(dl.error.message)
+              }
             }
           }
 
-          const filePath = `${folderPath}/${filename}`
-          const bytes = typeof fileData === "string"
-            ? new TextEncoder().encode(fileData)
-            : fileData
-
-          await writeFile(filePath, bytes)
-
-          results.push({
-            url: currentUrl,
-            success: true,
-            title: extractedSource.title
-          })
-
-          // Add to history
-          await addHistory({
-            url: currentUrl,
-            title: extractedSource.title,
-            format,
-            timestamp: Date.now(),
-            content: extractedSource.title + " " + currentUrl
-          })
+          results.push({ url: currentUrl, success: true, title: article.title })
+          await recordHistory(article, exported.format)
         } catch (err) {
           results.push({
             url: currentUrl,
@@ -359,41 +278,40 @@ export default function WebExportPage({
         }
       }
 
-      setBatchProgress({
-        total,
-        completed: total,
-        currentUrl: "",
-        results
-      })
+      setBatchProgress({ total, completed: total, currentUrl: "", results })
 
       const successCount = results.filter((r) => r.success).length
-      const failCount = results.filter((r) => !r.success).length
-
+      const failCount = results.length - successCount
       if (failCount === 0) {
         notify(`导出完成：成功 ${successCount} 个`, "success")
       } else {
         notify(`导出完成：成功 ${successCount} 个，失败 ${failCount} 个`, "error")
       }
     },
-    [notify, addHistory]
+    [notify, recordHistory]
   )
 
   // --- History handlers ---
 
-  const handleHistorySelect = useCallback((item: ExportHistoryItem) => {
-    setUrl(item.url)
-    setMode("single")
-  }, [])
+  const handleHistorySelect = useCallback(
+    (item: ExportHistoryItem) => {
+      setUrl(item.url)
+      setMode("single")
+      void extract(item.url)
+    },
+    [extract]
+  )
 
   const handleHistoryDelete = useCallback(
-    async (index: number) => {
-      await removeHistory(index)
+    (item: ExportHistoryItem) => {
+      void history.remove(item)
     },
-    [removeHistory]
+    [history]
   )
 
   // ─── Expose CommandBar actions to the shell ───────────────────────────────
 
+  const busy = busyMessage !== null
   const commandActions: CommandAction[] = useMemo(() => {
     const actions: CommandAction[] = [
       {
@@ -408,7 +326,6 @@ export default function WebExportPage({
       }
     ]
 
-    // Export actions only available in single mode with an extracted source.
     if (mode === "single" && source) {
       actions.push(
         {
@@ -416,9 +333,9 @@ export default function WebExportPage({
           icon: FileText,
           label: "导出 Markdown",
           group: "file",
-          disabled: !source,
+          disabled: busy,
           onExecute: () => {
-            void handleExportMarkdown()
+            void handleExport("markdown")
           }
         },
         {
@@ -426,9 +343,9 @@ export default function WebExportPage({
           icon: FilePdf,
           label: "导出 PDF",
           group: "file",
-          disabled: !source,
+          disabled: busy,
           onExecute: () => {
-            void handleExportPdf()
+            void handleExport("pdf")
           }
         },
         {
@@ -436,9 +353,9 @@ export default function WebExportPage({
           icon: Image,
           label: "导出 PNG",
           group: "file",
-          disabled: !source,
+          disabled: busy,
           onExecute: () => {
-            void handleExportPng()
+            void handleExport("png")
           }
         },
         {
@@ -446,7 +363,7 @@ export default function WebExportPage({
           icon: Copy,
           label: "复制 PNG 到剪贴板",
           group: "auxiliary",
-          disabled: !source,
+          disabled: busy,
           onExecute: () => {
             void handleCopyPng()
           }
@@ -455,17 +372,7 @@ export default function WebExportPage({
     }
 
     return actions
-  }, [
-    mode,
-    source,
-    loading,
-    url,
-    handleExtract,
-    handleExportMarkdown,
-    handleExportPdf,
-    handleExportPng,
-    handleCopyPng
-  ])
+  }, [mode, source, loading, url, busy, handleExtract, handleExport, handleCopyPng])
 
   useEffect(() => {
     onActionsChange?.(commandActions)
@@ -486,6 +393,9 @@ export default function WebExportPage({
   }, [source, onStatusChange])
 
   // --- Render ---
+
+  const exportButtonClass =
+    "rounded-lg border border-stone-200 px-3 py-1.5 text-sm text-stone-700 transition-colors hover:border-rose-300 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:text-stone-300"
 
   const leftPanel = (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-5">
@@ -512,7 +422,6 @@ export default function WebExportPage({
 
       {mode === "single" ? (
         <div className="flex flex-1 flex-col gap-4">
-          {/* URL Input */}
           <div className="flex gap-2">
             <input
               type="url"
@@ -524,12 +433,68 @@ export default function WebExportPage({
               }}
               className="input-field flex-1"
             />
+            <button
+              type="button"
+              onClick={() => void handleExtract()}
+              disabled={loading || !url.trim()}
+              className="rounded-lg bg-rose-500 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-40">
+              {loading ? "提取中…" : "提取"}
+            </button>
           </div>
+
+          {source && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" disabled={busy} onClick={() => void handleExport("markdown")} className={exportButtonClass}>
+                导出 Markdown
+              </button>
+              <button type="button" disabled={busy} onClick={() => void handleExport("pdf")} className={exportButtonClass}>
+                导出 PDF
+              </button>
+              <button type="button" disabled={busy} onClick={() => void handleExport("png")} className={exportButtonClass}>
+                导出 PNG
+              </button>
+              <button type="button" disabled={busy} onClick={() => void handleCopyPng()} className={exportButtonClass}>
+                复制 PNG
+              </button>
+            </div>
+          )}
+
+          {busyMessage && (
+            <p className="text-xs text-stone-500 dark:text-stone-400">{busyMessage}</p>
+          )}
+
+          {oversizedPrompt && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+              <p>
+                单张 PNG 约 {oversizedPrompt.preflight.mergedWidth} ×{" "}
+                {oversizedPrompt.preflight.mergedHeight} 像素，可能无法稳定导出。
+              </p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => answerOversized("paged")}
+                  className="rounded-md bg-stone-900 px-3 py-1.5 text-xs font-medium text-white">
+                  分页导出 PNG
+                </button>
+                <button
+                  type="button"
+                  onClick={() => answerOversized("pdf")}
+                  className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-stone-900 ring-1 ring-stone-300">
+                  改为导出 PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => answerOversized("cancel")}
+                  className="rounded-md px-3 py-1.5 text-xs text-stone-600 hover:bg-amber-100 dark:text-stone-300">
+                  取消
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
-        /* Batch Mode */
         <BatchUrlPanel
-          onBatchExport={handleBatchExport}
+          onBatchExport={(urls, format) => void handleBatchExport(urls, format)}
           progress={batchProgress}
         />
       )}
@@ -546,7 +511,6 @@ export default function WebExportPage({
 
   return (
     <div className="flex h-full">
-      {/* Main content area with split pane */}
       <div className="flex-1">
         <ResizableSplitPane
           left={leftPanel}
@@ -557,13 +521,13 @@ export default function WebExportPage({
         />
       </div>
 
-      {/* History sidebar */}
       <HistoryPanel<ExportHistoryItem>
         items={filteredHistory}
         searchQuery={historySearchQuery}
         onSearchChange={setHistorySearchQuery}
         onSelect={handleHistorySelect}
         onDelete={handleHistoryDelete}
+        getKey={(item) => `${item.url}|${item.format}|${item.timestamp}`}
         title="导出历史"
         renderItem={(item) => (
           <div className="flex flex-col gap-0.5">
@@ -572,9 +536,7 @@ export default function WebExportPage({
             </span>
             <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
               <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs dark:bg-gray-700">
-                {item.format === "markdown"
-                  ? "MD"
-                  : item.format.toUpperCase()}
+                {item.format === "markdown" ? "MD" : item.format.toUpperCase()}
               </span>
               <span>
                 {new Date(item.timestamp).toLocaleString("zh-CN", {
@@ -589,7 +551,6 @@ export default function WebExportPage({
         )}
       />
 
-      {/* Toast — only used when not wired to shell toast */}
       {!onToast && toast && (
         <Toast
           message={toast.message}

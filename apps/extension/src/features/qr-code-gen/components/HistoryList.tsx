@@ -6,6 +6,7 @@ import {
   DownloadIcon,
   HistoryIcon,
   PlusIcon,
+  SearchIcon,
   TagIcon,
   TrashIcon,
   UploadIcon,
@@ -26,6 +27,9 @@ export function HistoryList() {
     addTagToItem,
     removeTagFromItem,
     setSelectedTag,
+    searchQuery,
+    setSearchQuery,
+    history,
     exportHistory,
     importHistory
   } = useQrCode()
@@ -109,10 +113,32 @@ export function HistoryList() {
           <button
             onClick={exportHistory}
             title="export list"
-            disabled={filteredHistory.length === 0}
+            disabled={history.length === 0}
             className="plasmo-p-1.5 plasmo-text-stone-400 hover:plasmo-text-blue-600 hover:plasmo-bg-blue-50 plasmo-rounded-md plasmo-transition-all disabled:plasmo-opacity-30 disabled:plasmo-cursor-not-allowed">
             <DownloadIcon className="plasmo-w-3.5 plasmo-h-3.5" />
           </button>
+        </div>
+      </div>
+
+      <div className="plasmo-px-3 plasmo-pb-2">
+        <div className="plasmo-flex plasmo-items-center plasmo-gap-1.5 plasmo-rounded-lg plasmo-border plasmo-border-stone-200 plasmo-bg-white plasmo-px-2 plasmo-py-1 focus-within:plasmo-border-rose-300">
+          <SearchIcon className="plasmo-h-3 plasmo-w-3 plasmo-text-stone-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜索..."
+            className="plasmo-w-full plasmo-bg-transparent plasmo-text-xs plasmo-text-stone-700 plasmo-outline-none"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              title="清除搜索"
+              className="plasmo-text-stone-400 hover:plasmo-text-rose-500">
+              <XIcon className="plasmo-h-3 plasmo-w-3" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -150,7 +176,7 @@ export function HistoryList() {
           <div className="plasmo-flex plasmo-flex-col plasmo-items-center plasmo-justify-center plasmo-h-full plasmo-text-stone-300 plasmo-gap-2">
             <HistoryIcon className="plasmo-w-8 plasmo-h-8 plasmo-opacity-20" />
             <span className="plasmo-text-sm">
-              {selectedTag ? "No items with this tag" : "No history yet"}
+              {searchQuery || selectedTag ? "没有匹配的记录" : "No history yet"}
             </span>
           </div>
         ) : (
@@ -173,6 +199,14 @@ export function HistoryList() {
                       : "plasmo-text-stone-700"
                   }`}>
                   {item.content}
+                </div>
+                <div className="plasmo-text-[11px] plasmo-text-stone-400">
+                  {new Date(item.timestamp).toLocaleString("zh-CN", {
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit"
+                  })}
                 </div>
               </div>
 

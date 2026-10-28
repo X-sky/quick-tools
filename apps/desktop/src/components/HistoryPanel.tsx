@@ -1,13 +1,15 @@
-import { type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 
 interface HistoryPanelProps<T> {
   items: T[]
   searchQuery: string
   onSearchChange: (query: string) => void
   onSelect: (item: T) => void
-  onDelete: (index: number) => void
+  onDelete: (item: T) => void
   renderItem: (item: T) => ReactNode
   title: string
+  /** Stable key per item; defaults to the list index. */
+  getKey?: (item: T, index: number) => string
 }
 
 export const HistoryPanel = <T,>({
@@ -17,8 +19,10 @@ export const HistoryPanel = <T,>({
   onSelect,
   onDelete,
   renderItem,
-  title
+  title,
+  getKey = (_item, index) => String(index)
 }: HistoryPanelProps<T>) => {
+  const [confirmKey, setConfirmKey] = useState<string | null>(null)
   return (
     <div className="flex h-full w-60 flex-col border-l border-stone-200 bg-white dark:border-stone-800 dark:bg-stone-900">
       <div className="border-b border-stone-100 px-4 py-3 dark:border-stone-800">
@@ -44,9 +48,11 @@ export const HistoryPanel = <T,>({
           </div>
         ) : (
           <ul className="space-y-0.5 px-2 py-1">
-            {items.map((item, index) => (
+            {items.map((item, index) => {
+              const key = getKey(item, index)
+              return (
               <li
-                key={index}
+                key={key}
                 className="group flex items-center gap-1 rounded-lg transition-colors hover:bg-stone-50 dark:hover:bg-stone-800">
                 <button
                   type="button"
@@ -54,9 +60,29 @@ export const HistoryPanel = <T,>({
                   className="flex-1 overflow-hidden px-2.5 py-2 text-left text-sm text-stone-700 dark:text-stone-300">
                   {renderItem(item)}
                 </button>
+                {confirmKey === key ? (
+                  <div className="mr-1.5 flex shrink-0 items-center gap-1">
+                    <span className="text-xs text-stone-500 dark:text-stone-400">删除？</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onDelete(item)
+                        setConfirmKey(null)
+                      }}
+                      className="rounded px-1.5 py-0.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30">
+                      是
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmKey(null)}
+                      className="rounded px-1.5 py-0.5 text-xs text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800">
+                      否
+                    </button>
+                  </div>
+                ) : (
                 <button
                   type="button"
-                  onClick={() => onDelete(index)}
+                  onClick={() => setConfirmKey(key)}
                   className="mr-1.5 shrink-0 rounded-md p-1 text-stone-400 opacity-0 transition-all hover:bg-rose-50 hover:text-rose-500 group-hover:opacity-100 dark:hover:bg-rose-950/30 dark:hover:text-rose-400"
                   aria-label="删除记录">
                   <svg
@@ -71,8 +97,10 @@ export const HistoryPanel = <T,>({
                     />
                   </svg>
                 </button>
+                )}
               </li>
-            ))}
+              )
+            })}
           </ul>
         )}
       </div>

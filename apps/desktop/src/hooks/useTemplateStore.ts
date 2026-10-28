@@ -562,7 +562,7 @@ export function useTemplateStore(): UseTemplateStoreReturn {
         updateStore(currentStore)
       }
 
-      setSelections((prev) => ({ ...prev, ...newSelections }))
+      setSelections(newSelections)
 
       return { ok: true, warnings }
     },

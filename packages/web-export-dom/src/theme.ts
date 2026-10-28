@@ -1,3 +1,7 @@
+// Styles for the export document. Shipped as a string and injected at runtime
+// so every host (extension page, Tauri webview, plain browser) renders the
+// same page without depending on its bundler's CSS handling.
+export const MARKDOWN_THEME_CSS = `
 .web-export-markdown {
   --we-text: #2d261f;
   --we-muted: #776657;
@@ -346,4 +350,15 @@
   font-size: 18px;
   line-height: 1.4;
   text-align: right;
+}
+`
+
+const STYLE_ELEMENT_ID = "quick-tools-web-export-theme"
+
+export function ensureThemeStyles(doc: Document = document): void {
+  if (doc.getElementById(STYLE_ELEMENT_ID)) return
+  const style = doc.createElement("style")
+  style.id = STYLE_ELEMENT_ID
+  style.textContent = MARKDOWN_THEME_CSS
+  doc.head.appendChild(style)
 }

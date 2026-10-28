@@ -1,11 +1,17 @@
+import { calculateQrCapacity } from "@quick-tools/qr-code-gen"
 import { QRCodeSVG } from "qrcode.react"
+import { useRef } from "react"
 
+import { QrExportBar } from "../../components/QrExportBar"
+import { useQrCode } from "../../context"
 import { parse } from "../parser"
 import { render } from "../renderer"
 import { useTemplate } from "../context"
 
 export const TemplateQrDisplay = () => {
   const { store, activeTemplateId, selections } = useTemplate()
+  const { size, setSize, level, setLevel } = useQrCode()
+  const svgContainerRef = useRef<HTMLDivElement>(null)
 
   const activeTemplate = store.templates.find(
     (t) => t.id === activeTemplateId
@@ -63,10 +69,10 @@ export const TemplateQrDisplay = () => {
   }
 
   const finalString = render(activeTemplate.templateString, selections)
-  const isOverLength = finalString.length > 2953
+  const capacity = calculateQrCapacity(finalString, level)
 
   return (
-    <div className="plasmo-w-[200px] plasmo-bg-white plasmo-flex plasmo-flex-col plasmo-items-center plasmo-justify-center plasmo-p-4 plasmo-relative plasmo-overflow-hidden">
+    <div className="plasmo-w-[200px] plasmo-bg-white plasmo-flex plasmo-flex-col plasmo-items-center plasmo-justify-center plasmo-gap-3 plasmo-p-3 plasmo-relative plasmo-overflow-hidden">
       {/* Background decoration */}
       <div className="plasmo-absolute plasmo-inset-0 plasmo-opacity-[0.03] plasmo-pointer-events-none">
         <div className="plasmo-absolute -plasmo-top-10 -plasmo-right-10 plasmo-w-40 plasmo-h-40 plasmo-bg-rose-500 plasmo-rounded-full plasmo-blur-3xl"></div>
@@ -74,23 +80,38 @@ export const TemplateQrDisplay = () => {
       </div>
 
       <div className="plasmo-relative plasmo-transition-all plasmo-duration-500 plasmo-transform plasmo-opacity-100 plasmo-scale-100 plasmo-blur-0">
-        <div className="plasmo-p-3 plasmo-bg-white plasmo-rounded-2xl plasmo-shadow-lg plasmo-border plasmo-border-stone-100">
-          <QRCodeSVG
-            value={finalString}
-            size={140}
-            level="M"
-            includeMargin={false}
-            className="plasmo-rounded-lg"
-            fgColor="#1c1917"
-          />
-        </div>
+        {capacity.isOverCapacity ? (
+          <div className="plasmo-w-[140px] plasmo-h-[140px] plasmo-rounded-2xl plasmo-border-2 plasmo-border-red-200 plasmo-bg-red-50 plasmo-flex plasmo-flex-col plasmo-items-center plasmo-justify-center plasmo-text-center plasmo-text-xs plasmo-text-red-600 plasmo-px-3">
+            <div className="plasmo-font-medium">容量超限</div>
+            <div>请缩短内容或降低纠错等级</div>
+          </div>
+        ) : (
+          <div
+            ref={svgContainerRef}
+            className="plasmo-p-3 plasmo-bg-white plasmo-rounded-2xl plasmo-shadow-lg plasmo-border plasmo-border-stone-100">
+            <QRCodeSVG
+              value={finalString}
+              size={140}
+              level={level}
+              includeMargin={false}
+              className="plasmo-rounded-lg"
+              fgColor="#1c1917"
+            />
+          </div>
+        )}
       </div>
 
-      {isOverLength && (
-        <div className="plasmo-mt-3 plasmo-text-xs plasmo-text-amber-600 plasmo-bg-amber-50 plasmo-px-3 plasmo-py-1 plasmo-rounded-full plasmo-text-center">
-          内容过长，二维码可能无法被识别
-        </div>
-      )}
+      <div className="plasmo-relative plasmo-w-full">
+        <QrExportBar
+          svgContainerRef={svgContainerRef}
+          content={finalString}
+          size={size}
+          onSizeChange={setSize}
+          level={level}
+          onLevelChange={setLevel}
+          filePrefix="qr-template"
+        />
+      </div>
     </div>
   )
 }

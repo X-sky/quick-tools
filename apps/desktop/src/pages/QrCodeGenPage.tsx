@@ -1,15 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { getPlatform } from "@quick-tools/platform"
-import type { HistoryItem } from "@quick-tools/qr-code-gen"
+import type { HistoryItem, QrErrorLevel, QrSize } from "@quick-tools/qr-code-gen"
+import {
+  filterHistoryItems,
+  historyExportFilename,
+  QR_ERROR_LEVELS,
+  QR_SIZES,
+  qrImageFilename
+} from "@quick-tools/qr-code-gen"
 import { QrCode, DownloadSimple, Image as ImageIcon, Copy } from "@phosphor-icons/react"
 
-import { HistoryPanel } from "~/components/HistoryPanel"
+import { QrHistoryPanel } from "~/components/QrHistoryPanel"
 import { QrRenderer } from "~/components/QrRenderer"
 import { Toast } from "~/components/Toast"
 import { TemplateMode } from "~/components/template"
 import type { CommandAction } from "~/components/shell/CommandBar"
-import { useHistory } from "~/hooks/useHistory"
+import { useJsonFilePicker } from "~/hooks/useJsonFilePicker"
+import { useQrHistory } from "~/hooks/useQrHistory"
 import { useToast } from "~/hooks/useToast"
 import { calculateQrCapacity } from "~/lib/qr-capacity"
 import type { PageShellProps } from "~/types/page-shell"
@@ -24,13 +32,17 @@ export default function QrCodeGenPage({
 
   // Free mode state (preserved across mode switches)
   const [content, setContent] = useState("")
-  const [size, setSize] = useState<128 | 256 | 512>(256)
-  const [level, setLevel] = useState<"L" | "M" | "Q" | "H">("M")
+  const [size, setSize] = useState<QrSize>(256)
+  const [level, setLevel] = useState<QrErrorLevel>("M")
 
   // History
-  const { items: historyItems, add: addHistory, remove: removeHistory, search: searchHistory } =
-    useHistory<HistoryItem>({ storageKey: "qr-history" })
+  const history = useQrHistory()
   const [searchQuery, setSearchQuery] = useState("")
+  const [selectedTag, setSelectedTag] = useState<string | null>(null)
+  // Item picked from history; its tags carry over when the edited text is
+  // generated again.
+  const [editingItem, setEditingItem] = useState<HistoryItem | null>(null)
+  const restoredRef = useRef(false)
 
   // Toast
   const { toast, showToast, hideToast } = useToast()
@@ -50,9 +62,25 @@ export default function QrCodeGenPage({
     [onToast, showToast]
   )
 
-  const filteredHistory = searchQuery
-    ? searchHistory(searchQuery)
-    : historyItems
+  const filteredHistory = useMemo(
+    () =>
+      filterHistoryItems(history.items, {
+        query: searchQuery,
+        tag: selectedTag
+      }),
+    [history.items, searchQuery, selectedTag]
+  )
+
+  // Restore the most recent entry when the page opens.
+  useEffect(() => {
+    if (restoredRef.current || !history.loaded) return
+    restoredRef.current = true
+    const latest = history.items[0]
+    if (latest) {
+      setContent(latest.content)
+      setEditingItem(latest)
+    }
+  }, [history.loaded, history.items])
 
   const handleGenerate = useCallback(async () => {
     if (!content.trim()) return
@@ -64,9 +92,10 @@ export default function QrCodeGenPage({
       )
       return
     }
-    await addHistory({ content: content.trim(), timestamp: Date.now() })
+    await history.upsert(content, editingItem?.tags)
+    setEditingItem(null)
     notify("二维码已生成", "success")
-  }, [content, level, addHistory, notify])
+  }, [content, level, history, editingItem, notify])
 
   const handleExportPng = useCallback(async () => {
     const svgEl = svgContainerRef.current?.querySelector("svg")
@@ -105,7 +134,7 @@ export default function QrCodeGenPage({
       const platform = getPlatform()
       const result = await platform.fileDownloader.downloadWithDialog(
         pngData,
-        `qr-${content.slice(0, 20).replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, "_")}.png`,
+        qrImageFilename(content, "png"),
         "image/png"
       )
       if (result.ok) {
@@ -127,7 +156,7 @@ export default function QrCodeGenPage({
       const platform = getPlatform()
       const result = await platform.fileDownloader.downloadWithDialog(
         svgData,
-        `qr-${content.slice(0, 20).replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, "_")}.svg`,
+        qrImageFilename(content, "svg"),
         "image/svg+xml"
       )
       if (result.ok) {
@@ -179,7 +208,7 @@ export default function QrCodeGenPage({
       if (result.ok) {
         notify("已复制到剪贴板", "success")
       } else {
-        notify("剪贴板写入失败，请检查权限", "error")
+        notify(`剪贴板写入失败：${result.error.message}`, "error")
       }
     } catch {
       notify("复制到剪贴板失败", "error")
@@ -188,15 +217,71 @@ export default function QrCodeGenPage({
 
   const handleHistorySelect = useCallback((item: HistoryItem) => {
     setContent(item.content)
+    setEditingItem(item)
     setMode("free")
   }, [])
 
   const handleHistoryDelete = useCallback(
-    async (index: number) => {
-      await removeHistory(index)
+    async (deleted: string) => {
+      await history.remove(deleted)
+      if (content.trim() === deleted || editingItem?.content === deleted) {
+        const next = history.items.find((item) => item.content !== deleted)
+        setContent(next?.content ?? "")
+        setEditingItem(next ?? null)
+      }
     },
-    [removeHistory]
+    [history, content, editingItem]
   )
+
+  const handleSelectTag = useCallback(
+    (tag: string | null) => {
+      setSelectedTag(tag)
+      const first = filterHistoryItems(history.items, {
+        query: searchQuery,
+        tag
+      })[0]
+      if (first) handleHistorySelect(first)
+    },
+    [history.items, searchQuery, handleHistorySelect]
+  )
+
+  const handleCopyText = useCallback(
+    async (text: string) => {
+      const result = await getPlatform().clipboard.writeText(text)
+      if (!result.ok) notify("剪贴板写入失败", "error")
+      return result.ok
+    },
+    [notify]
+  )
+
+  const handleExportHistory = useCallback(async () => {
+    if (history.items.length === 0) return
+    const result = await getPlatform().fileDownloader.downloadWithDialog(
+      history.exportJson(),
+      historyExportFilename(),
+      "application/json"
+    )
+    if (result.ok) {
+      notify("历史已导出", "success")
+    } else if (result.error.category !== "cancelled") {
+      notify(result.error.message, "error")
+    }
+  }, [history, notify])
+
+  const historyImporter = useJsonFilePicker({
+    onText: async (text) => {
+      const result = await history.importJson(text)
+      if (result.error) {
+        notify(result.error, "error")
+        return
+      }
+      const parts: string[] = []
+      if (result.added > 0) parts.push(`新增 ${result.added} 条`)
+      if (result.merged > 0) parts.push(`合并 ${result.merged} 条`)
+      notify(parts.join("，") || "没有新记录", "success")
+    },
+    onError: (message) => notify(message, "error")
+  })
 
   // Adapter for TemplateMode: prefer shell toast, fall back to local toast
   // (preserving the optional duration used by local toasts).
@@ -311,36 +396,39 @@ export default function QrCodeGenPage({
           </div>
         </div>
 
+        {/* Settings Row */}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-stone-500 dark:text-stone-400">尺寸</label>
+            <select
+              value={size}
+              onChange={(e) => setSize(Number(e.target.value) as QrSize)}
+              className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-sm text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300">
+              {QR_SIZES.map((s) => (
+                <option key={s} value={s}>
+                  {s}px
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-stone-500 dark:text-stone-400">纠错</label>
+            <select
+              value={level}
+              onChange={(e) => setLevel(e.target.value as QrErrorLevel)}
+              className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-sm text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300">
+              {QR_ERROR_LEVELS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         <div
           className="flex flex-1 flex-col gap-4"
           style={{ display: mode === "free" ? "flex" : "none" }}>
-          {/* Settings Row */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-stone-500 dark:text-stone-400">尺寸</label>
-              <select
-                value={size}
-                onChange={(e) => setSize(Number(e.target.value) as 128 | 256 | 512)}
-                className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-sm text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300">
-                <option value={128}>128px</option>
-                <option value={256}>256px</option>
-                <option value={512}>512px</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-stone-500 dark:text-stone-400">纠错</label>
-              <select
-                value={level}
-                onChange={(e) => setLevel(e.target.value as "L" | "M" | "Q" | "H")}
-                className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-sm text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300">
-                <option value="L">L (7%)</option>
-                <option value="M">M (15%)</option>
-                <option value="Q">Q (25%)</option>
-                <option value="H">H (30%)</option>
-              </select>
-            </div>
-          </div>
-
           <div className="flex flex-1 flex-col gap-4">
             {/* Content Input */}
             <textarea
@@ -349,7 +437,25 @@ export default function QrCodeGenPage({
               placeholder="输入要生成二维码的内容..."
               rows={4}
               className="input-field resize-none"
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault()
+                  void handleGenerate()
+                }
+              }}
             />
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-stone-400 dark:text-stone-500">
+                {content.length} 字符 · ⌘/Ctrl + Enter 生成并记入历史
+              </span>
+              <button
+                type="button"
+                onClick={() => void handleGenerate()}
+                disabled={!content.trim()}
+                className="rounded-lg bg-rose-500 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-40">
+                生成
+              </button>
+            </div>
 
             {/* QR Code Display */}
             <div ref={svgContainerRef} className="flex flex-1 items-center justify-center">
@@ -370,35 +476,28 @@ export default function QrCodeGenPage({
         <div
           className="flex flex-1 flex-col min-h-0"
           style={{ display: mode === "template" ? "flex" : "none" }}>
-          <TemplateMode showToast={notifyTemplate} />
+          <TemplateMode showToast={notifyTemplate} size={size} level={level} />
         </div>
       </div>
 
       {/* Right Panel - History Sidebar */}
-      <HistoryPanel<HistoryItem>
+      {historyImporter.inputElement}
+      <QrHistoryPanel
         items={filteredHistory}
+        totalCount={history.items.length}
+        allTags={history.allTags}
+        selectedTag={selectedTag}
+        onSelectTag={handleSelectTag}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        activeContent={content.trim() || null}
         onSelect={handleHistorySelect}
-        onDelete={handleHistoryDelete}
-        title="生成历史"
-        renderItem={(item) => (
-          <div className="flex flex-col gap-0.5">
-            <span className="truncate text-sm text-stone-700 dark:text-stone-300">
-              {item.content.length > 30
-                ? item.content.slice(0, 30) + "..."
-                : item.content}
-            </span>
-            <span className="text-[11px] text-stone-400 dark:text-stone-600">
-              {new Date(item.timestamp).toLocaleString("zh-CN", {
-                month: "2-digit",
-                day: "2-digit",
-                hour: "2-digit",
-                minute: "2-digit"
-              })}
-            </span>
-          </div>
-        )}
+        onDelete={(c) => void handleHistoryDelete(c)}
+        onCopy={handleCopyText}
+        onAddTag={(c, t) => void history.addTag(c, t)}
+        onRemoveTag={(c, t) => void history.removeTag(c, t)}
+        onImport={() => void historyImporter.open()}
+        onExport={() => void handleExportHistory()}
       />
 
       {/* Local Toast — only used when not wired to shell toast */}

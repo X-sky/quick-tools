@@ -9,12 +9,12 @@ import {
   PAGE_WIDTH,
   SINGLE_PNG_MAX_BYTES,
   SINGLE_PNG_MAX_DIMENSION
-} from "./render-constants"
+} from "./constants"
 import type {
   PdfCaptureProfile,
   PdfPageCapture,
   RenderPage
-} from "./types"
+} from "@quick-tools/web-export"
 
 function buildPageMarkup(page: RenderPage, index: number, total: number) {
   return `
@@ -66,8 +66,8 @@ export async function renderPagePngBytes(
     cacheBust: true,
     backgroundColor: PAGE_BACKGROUND,
     pixelRatio: 2,
-    canvasWidth: PAGE_WIDTH * 2,
-    canvasHeight: PAGE_HEIGHT * 2,
+    canvasWidth: PAGE_WIDTH,
+    canvasHeight: PAGE_HEIGHT,
     width: PAGE_WIDTH,
     height: PAGE_HEIGHT
   })
@@ -105,8 +105,8 @@ export async function capturePageForPdf(
       cacheBust: true,
       backgroundColor: PAGE_BACKGROUND,
       pixelRatio: profile.pixelRatio,
-      canvasWidth: PAGE_WIDTH * profile.pixelRatio,
-      canvasHeight: PAGE_HEIGHT * profile.pixelRatio,
+      canvasWidth: PAGE_WIDTH,
+      canvasHeight: PAGE_HEIGHT,
       width: PAGE_WIDTH,
       height: PAGE_HEIGHT,
       quality: profile.quality
@@ -126,8 +126,8 @@ export async function capturePageForPdf(
     cacheBust: true,
     backgroundColor: PAGE_BACKGROUND,
     pixelRatio: profile.pixelRatio,
-    canvasWidth: PAGE_WIDTH * profile.pixelRatio,
-    canvasHeight: PAGE_HEIGHT * profile.pixelRatio,
+    canvasWidth: PAGE_WIDTH,
+    canvasHeight: PAGE_HEIGHT,
     width: PAGE_WIDTH,
     height: PAGE_HEIGHT,
     quality: profile.quality,
@@ -163,7 +163,9 @@ export function canMergeIntoSinglePng(pagePngs: Uint8Array[]) {
 
 export function mergePngPages(pagePngs: Uint8Array[]) {
   const decodedPages = pagePngs.map((bytes) => decode(bytes))
-  const mergedWidth = decodedPages[0].width
+  const first = decodedPages[0]
+  if (!first) throw new Error("没有可合并的 PNG 页面。")
+  const mergedWidth = first.width
   const mergedHeight = decodedPages.reduce((sum, page) => sum + page.height, 0)
   const data = new Uint8Array(mergedWidth * mergedHeight * 4)
 
@@ -189,19 +191,6 @@ export function mergePngPages(pagePngs: Uint8Array[]) {
     channels: 4,
     depth: 8
   })
-}
-
-export function bytesToObjectUrl(bytes: Uint8Array, mimeType: string) {
-  return URL.createObjectURL(new Blob([bytes], { type: mimeType }))
-}
-
-export async function downloadObjectUrl(url: string, filename: string) {
-  await chrome.downloads.download({
-    url,
-    filename
-  })
-
-  window.setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
 
 export function buildPageFilename(base: string, index: number, total: number) {

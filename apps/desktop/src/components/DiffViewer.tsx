@@ -13,11 +13,24 @@ import { useEffect, useRef } from "react"
 export interface DiffViewerProps {
   left: string
   right: string
+  /** When provided, the left side becomes editable and reports edits here. */
+  onLeftChange?: (value: string) => void
+  /** When provided, the right side becomes editable and reports edits here. */
+  onRightChange?: (value: string) => void
 }
 
-export function DiffViewer({ left, right }: DiffViewerProps) {
+export function DiffViewer({
+  left,
+  right,
+  onLeftChange,
+  onRightChange
+}: DiffViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mergeViewRef = useRef<MergeView | null>(null)
+  const onLeftChangeRef = useRef(onLeftChange)
+  const onRightChangeRef = useRef(onRightChange)
+  onLeftChangeRef.current = onLeftChange
+  onRightChangeRef.current = onRightChange
 
   // Create the MergeView on mount
   useEffect(() => {
@@ -29,8 +42,7 @@ export function DiffViewer({ left, right }: DiffViewerProps) {
       bracketMatching(),
       foldGutter(),
       json(),
-      EditorState.readOnly.of(true),
-      EditorView.editable.of(false)
+      EditorView.lineWrapping
     ]
 
     // Detect system dark mode
@@ -39,14 +51,27 @@ export function DiffViewer({ left, right }: DiffViewerProps) {
       sharedExtensions.push(oneDark)
     }
 
+    const sideExtensions = (
+      changeRef: React.MutableRefObject<((value: string) => void) | undefined>
+    ) =>
+      changeRef.current
+        ? [
+            EditorView.updateListener.of((update) => {
+              if (update.docChanged) {
+                changeRef.current?.(update.state.doc.toString())
+              }
+            })
+          ]
+        : [EditorState.readOnly.of(true), EditorView.editable.of(false)]
+
     const mergeView = new MergeView({
       a: {
         doc: left,
-        extensions: [...sharedExtensions]
+        extensions: [...sharedExtensions, ...sideExtensions(onLeftChangeRef)]
       },
       b: {
         doc: right,
-        extensions: [...sharedExtensions]
+        extensions: [...sharedExtensions, ...sideExtensions(onRightChangeRef)]
       },
       parent: containerRef.current
     })

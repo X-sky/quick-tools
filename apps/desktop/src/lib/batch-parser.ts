@@ -44,25 +44,4 @@ export function parseBatchContent(
   return results
 }
 
-export function parseBatchUrls(text: string): BatchLineResult[] {
-  const lines = text.split("\n")
-  const results: BatchLineResult[] = []
-
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i]!.trim()
-    if (trimmed === "") continue
-
-    const valid = trimmed.startsWith("http://") || trimmed.startsWith("https://")
-
-    results.push({
-      line: i + 1,
-      content: trimmed,
-      valid,
-      error: valid
-        ? undefined
-        : "URL 格式无效，必须以 http:// 或 https:// 开头"
-    })
-  }
-
-  return results
-}
+export { parseBatchUrls } from "@quick-tools/web-export"

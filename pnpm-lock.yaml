@@ -77,6 +77,9 @@ importers:
       '@quick-tools/web-export':
         specifier: workspace:*
         version: link:../../packages/web-export
+      '@quick-tools/web-export-dom':
+        specifier: workspace:*
+        version: link:../../packages/web-export-dom
       '@resvg/resvg-wasm':
         specifier: ^2.6.2
         version: 2.6.2
@@ -216,6 +219,9 @@ importers:
       '@quick-tools/web-export':
         specifier: workspace:*
         version: link:../../packages/web-export
+      '@quick-tools/web-export-dom':
+        specifier: workspace:*
+        version: link:../../packages/web-export-dom
       '@resvg/resvg-wasm':
         specifier: ^2.6.2
         version: 2.6.2
@@ -352,6 +358,49 @@ importers:
       fast-check:
         specifier: ^3.23.2
         version: 3.23.2
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(@swc/core@1.15.33(@swc/helpers@0.5.21))(jiti@1.21.7)(postcss@8.5.14)(typescript@5.3.3)(yaml@2.9.0)
+      typescript:
+        specifier: 5.3.3
+        version: 5.3.3
+      vitest:
+        specifier: ^1.6.1
+        version: 1.6.1(@types/node@20.11.5)(jsdom@29.1.1)(less@4.6.4)(lightningcss@1.32.0)(sass@1.99.0)
+
+  packages/web-export-dom:
+    dependencies:
+      '@mozilla/readability':
+        specifier: ^0.6.0
+        version: 0.6.0
+      '@quick-tools/web-export':
+        specifier: workspace:*
+        version: link:../web-export
+      fast-png:
+        specifier: ^8.0.0
+        version: 8.0.0
+      html-to-image:
+        specifier: ^1.11.13
+        version: 1.11.13
+      marked:
+        specifier: ^17.0.5
+        version: 17.0.6
+      pdf-lib:
+        specifier: ^1.17.1
+        version: 1.17.1
+      turndown:
+        specifier: ^7.2.2
+        version: 7.2.4
+      turndown-plugin-gfm:
+        specifier: ^1.0.2
+        version: 1.0.2
+    devDependencies:
+      '@types/turndown':
+        specifier: ^5.0.5
+        version: 5.0.6
+      jsdom:
+        specifier: ^29.1.1
+        version: 29.1.1
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(@swc/core@1.15.33(@swc/helpers@0.5.21))(jiti@1.21.7)(postcss@8.5.14)(typescript@5.3.3)(yaml@2.9.0)

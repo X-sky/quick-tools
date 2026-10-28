@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react"
+import { useRef, useState } from "react"
 
 import { useTemplate } from "../context"
 import { parse } from "../parser"
+import { CreateTemplateForm } from "./CreateTemplateForm"
 
 interface TemplateCardBodyProps {
   templateId: string
@@ -10,11 +11,12 @@ interface TemplateCardBodyProps {
 export const TemplateCardBody = ({ templateId }: TemplateCardBodyProps) => {
   const {
     store,
-    updateTemplate,
     selections,
     setSelection,
+    clearSelections,
     addPlaceholderValue,
     deletePlaceholderValue,
+    reorderPlaceholderValues,
     setDefaultValue,
     saveCombinationTag,
     deleteCombinationTag,
@@ -23,18 +25,18 @@ export const TemplateCardBody = ({ templateId }: TemplateCardBodyProps) => {
 
   const template = store.templates.find((t) => t.id === templateId)
   const [showEditForm, setShowEditForm] = useState(false)
-  const [editName, setEditName] = useState(template?.name ?? "")
-  const [editTemplateString, setEditTemplateString] = useState(
-    template?.templateString ?? ""
-  )
-  const [editError, setEditError] = useState("")
   const [customValues, setCustomValues] = useState<Record<string, string>>({})
+  const [valueErrors, setValueErrors] = useState<Record<string, string>>({})
   const [tagName, setTagName] = useState("")
-
-  const editParseErrors = useMemo(() => {
-    if (!editTemplateString.trim()) return []
-    return parse(editTemplateString).errors
-  }, [editTemplateString])
+  const [tagMessage, setTagMessage] = useState<{
+    type: "error" | "warning"
+    text: string
+  } | null>(null)
+  const [pendingOverwrite, setPendingOverwrite] = useState<string | null>(null)
+  const dragRef = useRef<{ name: string; index: number } | null>(null)
+  const [dragOver, setDragOver] = useState<{ name: string; index: number } | null>(
+    null
+  )
 
   if (!template) return null
 
@@ -57,23 +59,23 @@ export const TemplateCardBody = ({ templateId }: TemplateCardBodyProps) => {
     .sort((a, b) => b.createdAt - a.createdAt)
 
   const handleStartEdit = () => {
-    setEditName(template.name)
-    setEditTemplateString(template.templateString)
-    setEditError("")
     setShowEditForm(true)
   }
 
-  const handleSaveEdit = () => {
-    setEditError("")
-    const result = updateTemplate(templateId, {
-      name: editName.trim(),
-      templateString: editTemplateString
-    })
-    if (result.ok === true) {
-      setShowEditForm(false)
-    } else {
-      setEditError(result.error)
-    }
+  const flashTagMessage = (type: "error" | "warning", text: string) => {
+    setTagMessage({ type, text })
+    setTimeout(() => setTagMessage(null), type === "error" ? 3000 : 5000)
+  }
+
+  const handleDrop = (name: string, toIndex: number) => {
+    const from = dragRef.current
+    dragRef.current = null
+    setDragOver(null)
+    if (!from || from.name !== name || from.index === toIndex) return
+    const values = [...getCandidates(name)]
+    const [moved] = values.splice(from.index, 1)
+    values.splice(toIndex, 0, moved)
+    reorderPlaceholderValues(templateId, name, values)
   }
 
   const handleCustomValueChange = (name: string, value: string) => {
@@ -86,7 +88,12 @@ export const TemplateCardBody = ({ templateId }: TemplateCardBodyProps) => {
   const handleSaveAsCandidate = (name: string) => {
     const value = customValues[name]
     if (value && value.trim()) {
-      addPlaceholderValue(templateId, name, value.trim())
+      const result = addPlaceholderValue(templateId, name, value.trim())
+      if (result.ok === false) {
+        setValueErrors((prev) => ({ ...prev, [name]: result.error }))
+        return
+      }
+      setValueErrors((prev) => ({ ...prev, [name]: "" }))
       setCustomValues((prev) => ({ ...prev, [name]: "" }))
     }
   }
@@ -108,77 +115,42 @@ export const TemplateCardBody = ({ templateId }: TemplateCardBodyProps) => {
     }
   }
 
-  const handleSaveTag = () => {
-    const trimmed = tagName.trim()
-    if (!trimmed) return
-    const exists = tags.some((ct) => ct.name === trimmed)
-    if (exists) {
-      const confirmed = window.confirm("组合标签名称已存在，是否覆盖？")
-      if (!confirmed) return
-    }
-    const result = saveCombinationTag(templateId, trimmed)
+  const doSaveTag = (name: string) => {
+    const result = saveCombinationTag(templateId, name)
+    setPendingOverwrite(null)
     if (result.ok === false) {
-      window.alert(result.error)
+      flashTagMessage("error", result.error)
       return
     }
     setTagName("")
   }
 
+  const handleSaveTag = () => {
+    const trimmed = tagName.trim()
+    if (!trimmed) return
+    if (tags.some((ct) => ct.name === trimmed)) {
+      setPendingOverwrite(trimmed)
+      return
+    }
+    doSaveTag(trimmed)
+  }
+
   const handleRecallTag = (name: string) => {
     const result = recallCombinationTag(templateId, name)
     if (result.warnings.length > 0) {
-      window.alert(result.warnings.join("\n"))
+      flashTagMessage("warning", result.warnings.join("；"))
     }
   }
+
+  const selectedCount = placeholderNames.filter((n) => !!selections[n]).length
 
   // ============ Edit form mode ============
   if (showEditForm) {
     return (
-      <div className="plasmo-flex plasmo-flex-col plasmo-gap-2">
-        <input
-          type="text"
-          value={editName}
-          onChange={(e) => setEditName(e.target.value)}
-          placeholder="模板名称"
-          className="plasmo-w-full plasmo-px-2 plasmo-py-1 plasmo-text-sm plasmo-rounded plasmo-border plasmo-border-stone-200 plasmo-outline-none focus:plasmo-border-rose-400"
-        />
-        <textarea
-          value={editTemplateString}
-          onChange={(e) => {
-            setEditTemplateString(e.target.value)
-            setEditError("")
-          }}
-          rows={2}
-          placeholder="模板内容"
-          className="plasmo-w-full plasmo-px-2 plasmo-py-1 plasmo-text-sm plasmo-rounded plasmo-border plasmo-border-stone-200 plasmo-outline-none focus:plasmo-border-rose-400 plasmo-resize-none plasmo-font-mono"
-        />
-        {editParseErrors.length > 0 && (
-          <div className="plasmo-text-xs plasmo-text-amber-600">
-            {editParseErrors.map((e, i) => (
-              <div key={i}>
-                位置 {e.offset}: {e.message}
-              </div>
-            ))}
-          </div>
-        )}
-        {editError && (
-          <div className="plasmo-text-xs plasmo-text-red-500">{editError}</div>
-        )}
-        <div className="plasmo-flex plasmo-gap-2 plasmo-justify-end">
-          <button
-            type="button"
-            onClick={() => setShowEditForm(false)}
-            className="plasmo-px-2 plasmo-py-0.5 plasmo-text-xs plasmo-text-stone-500 plasmo-border plasmo-border-stone-200 plasmo-rounded hover:plasmo-bg-stone-100 plasmo-transition-colors">
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={handleSaveEdit}
-            className="plasmo-px-2 plasmo-py-0.5 plasmo-text-xs plasmo-text-white plasmo-bg-rose-500 plasmo-rounded hover:plasmo-bg-rose-600 plasmo-transition-colors">
-            保存
-          </button>
-        </div>
-      </div>
+      <CreateTemplateForm
+        editingTemplate={template}
+        onClose={() => setShowEditForm(false)}
+      />
     )
   }
 
@@ -186,7 +158,15 @@ export const TemplateCardBody = ({ templateId }: TemplateCardBodyProps) => {
   return (
     <div className="plasmo-flex plasmo-flex-col plasmo-gap-3">
       {/* Edit button */}
-      <div className="plasmo-flex plasmo-justify-end">
+      <div className="plasmo-flex plasmo-justify-end plasmo-gap-3">
+        {selectedCount > 0 && (
+          <button
+            type="button"
+            onClick={clearSelections}
+            className="plasmo-text-xs plasmo-text-stone-400 hover:plasmo-text-rose-500 plasmo-transition-colors">
+            清空选择
+          </button>
+        )}
         <button
           type="button"
           onClick={handleStartEdit}
@@ -194,6 +174,32 @@ export const TemplateCardBody = ({ templateId }: TemplateCardBodyProps) => {
           编辑模板
         </button>
       </div>
+
+      {/* Highlighted template preview */}
+      {placeholderNames.length > 0 && (
+        <div className="plasmo-rounded-lg plasmo-bg-stone-50 plasmo-border plasmo-border-stone-100 plasmo-px-2 plasmo-py-1.5 plasmo-text-xs plasmo-font-mono plasmo-break-all plasmo-text-stone-600">
+          {parseResult.segments.map((seg, i) =>
+            seg.type === "literal" ? (
+              <span key={i}>{seg.value}</span>
+            ) : selections[seg.value] ? (
+              <span
+                key={i}
+                className="plasmo-rounded plasmo-bg-emerald-50 plasmo-px-0.5 plasmo-text-emerald-700">
+                {selections[seg.value]}
+              </span>
+            ) : (
+              <span
+                key={i}
+                className="plasmo-rounded plasmo-bg-rose-50 plasmo-px-0.5 plasmo-text-rose-500">
+                {"{" + seg.value + "}"}
+              </span>
+            )
+          )}
+          <div className="plasmo-mt-1 plasmo-font-sans plasmo-text-[11px] plasmo-text-stone-400">
+            当前选择 {selectedCount}/{placeholderNames.length}
+          </div>
+        </div>
+      )}
 
       {/* Placeholder editors */}
       {placeholderNames.length === 0 ? (
@@ -223,10 +229,33 @@ export const TemplateCardBody = ({ templateId }: TemplateCardBodyProps) => {
 
               {candidates.length > 0 && (
                 <div className="plasmo-flex plasmo-flex-wrap plasmo-gap-1 plasmo-max-h-[80px] plasmo-overflow-y-auto">
-                  {candidates.map((val) => (
+                  {candidates.map((val, index) => (
                     <span
                       key={val}
-                      className={`plasmo-inline-flex plasmo-items-center plasmo-gap-0.5 plasmo-px-2 plasmo-py-0.5 plasmo-text-xs plasmo-rounded-full plasmo-border plasmo-cursor-pointer plasmo-transition-colors
+                      draggable
+                      onDragStart={(e) => {
+                        dragRef.current = { name, index }
+                        e.dataTransfer.effectAllowed = "move"
+                      }}
+                      onDragOver={(e) => {
+                        if (dragRef.current?.name !== name) return
+                        e.preventDefault()
+                        setDragOver({ name, index })
+                      }}
+                      onDragLeave={() => setDragOver(null)}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        handleDrop(name, index)
+                      }}
+                      onDragEnd={() => {
+                        dragRef.current = null
+                        setDragOver(null)
+                      }}
+                      className={`${
+                        dragOver?.name === name && dragOver.index === index
+                          ? "plasmo-ring-2 plasmo-ring-rose-300 "
+                          : ""
+                      }plasmo-inline-flex plasmo-items-center plasmo-gap-0.5 plasmo-px-2 plasmo-py-0.5 plasmo-text-xs plasmo-rounded-full plasmo-border plasmo-cursor-pointer plasmo-transition-colors
                         ${
                           selections[name] === val
                             ? "plasmo-bg-rose-100 plasmo-border-rose-300 plasmo-text-rose-700"
@@ -288,6 +317,12 @@ export const TemplateCardBody = ({ templateId }: TemplateCardBodyProps) => {
                 )}
               </div>
 
+              {valueErrors[name] && (
+                <div className="plasmo-text-xs plasmo-text-red-500">
+                  {valueErrors[name]}
+                </div>
+              )}
+
               {candidates.length === 0 && !customValue.trim() && (
                 <div className="plasmo-text-xs plasmo-text-stone-400">
                   请添加候选值
@@ -318,11 +353,40 @@ export const TemplateCardBody = ({ templateId }: TemplateCardBodyProps) => {
             <button
               type="button"
               onClick={handleSaveTag}
-              disabled={!tagName.trim()}
+              disabled={!tagName.trim() || pendingOverwrite !== null}
               className="plasmo-px-2 plasmo-py-1 plasmo-text-xs plasmo-font-medium plasmo-rounded plasmo-bg-rose-500 plasmo-text-white hover:plasmo-bg-rose-600 disabled:plasmo-bg-stone-200 disabled:plasmo-text-stone-400 disabled:plasmo-cursor-not-allowed plasmo-transition-all">
               保存组合
             </button>
           </div>
+          {pendingOverwrite && (
+            <div className="plasmo-flex plasmo-items-center plasmo-gap-2 plasmo-text-xs plasmo-text-amber-700 plasmo-bg-amber-50 plasmo-border plasmo-border-amber-200 plasmo-rounded plasmo-px-2 plasmo-py-1">
+              <span className="plasmo-flex-1">
+                组合标签「{pendingOverwrite}」已存在，是否覆盖？
+              </span>
+              <button
+                type="button"
+                onClick={() => doSaveTag(pendingOverwrite)}
+                className="plasmo-font-medium plasmo-text-rose-600 hover:plasmo-text-rose-700">
+                覆盖
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingOverwrite(null)}
+                className="plasmo-text-stone-500 hover:plasmo-text-stone-700">
+                取消
+              </button>
+            </div>
+          )}
+          {tagMessage && (
+            <div
+              className={`plasmo-text-xs ${
+                tagMessage.type === "error"
+                  ? "plasmo-text-red-500"
+                  : "plasmo-text-amber-600"
+              }`}>
+              {tagMessage.text}
+            </div>
+          )}
           {tags.length > 0 ? (
             <div className="plasmo-flex plasmo-flex-wrap plasmo-gap-1">
               {tags.map((tag) => (
