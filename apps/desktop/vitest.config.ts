@@ -11,8 +11,10 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // E2E tests opt in to jsdom via `// @vitest-environment jsdom` at the top of the file.
     environment: "node",
     include: ["src/**/*.{test,spec,property.test}.{ts,tsx}"],
-    exclude: ["node_modules", "dist", "src-tauri"]
+    exclude: ["node_modules", "dist", "src-tauri"],
+    setupFiles: ["./src/test-utils/setup.ts"]
   }
 })

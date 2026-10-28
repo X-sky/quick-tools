@@ -159,7 +159,7 @@ apps/desktop/
 │   │   ├── overlay/             # CommandPalette, NotificationToast, ContextDrawer
 │   │   ├── shared/              # AriaLiveRegion, FocusRing, SkeletonLoader, Tooltip, IconButton
 │   │   ├── template/            # 模板相关组件
-│   │   ├── HistoryPanel.tsx / BatchUrlPanel.tsx / BatchQrPanel.tsx
+│   │   ├── HistoryPanel.tsx / BatchUrlPanel.tsx
 │   │   ├── CodeMirrorEditor.tsx / DiffViewer.tsx / ResizableSplitPane.tsx
 │   │   ├── MarkdownPreview.tsx / QrRenderer.tsx / Toast.tsx
 │   ├── hooks/                   # useDebounce, useHistory, useTemplateStore, useCommandPalette, useTheme, useToast(Stack), useWindowState, useReducedMotion, usePageTransition

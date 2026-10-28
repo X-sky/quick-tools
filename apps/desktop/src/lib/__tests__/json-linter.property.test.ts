@@ -25,15 +25,19 @@ function createMockView(text: string): EditorView {
  * plus generate corrupted valid JSON.
  */
 const invalidJsonArb = fc.oneof(
-  // Strategy 1: Arbitrary strings that fail JSON.parse
-  fc.string({ minLength: 1 }).filter((s) => {
-    try {
-      JSON.parse(s)
-      return false
-    } catch {
-      return true
-    }
-  }),
+  // Strategy 1: Arbitrary strings that fail JSON.parse.
+  // Exclude whitespace-only inputs: jsonLintSource treats them as "empty"
+  // and returns no diagnostics, so they are out of scope for this property.
+  fc.string({ minLength: 1 })
+    .filter((s) => s.trim() !== "")
+    .filter((s) => {
+      try {
+        JSON.parse(s)
+        return false
+      } catch {
+        return true
+      }
+    }),
   // Strategy 2: Corrupt valid JSON by inserting/removing characters
   fc.tuple(
     fc.constantFrom(

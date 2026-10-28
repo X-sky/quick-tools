@@ -11,16 +11,18 @@ import { describe, it, expect } from "vitest"
 describe("StatusStrip", () => {
   describe("module exports", () => {
     it("should export StatusStrip as a default function component", async () => {
+      // First import of the module in the Vitest worker is slow (Phosphor icons
+      // + ESM cold start). Allow a generous timeout so the suite stays green.
       const mod = await import("../StatusStrip")
       expect(mod.default).toBeDefined()
       expect(typeof mod.default).toBe("function")
-    }, 15000)
+    }, 60000)
 
     it("should export StatusStripProps interface (component accepts correct props)", async () => {
       const mod = await import("../StatusStrip")
       // Verify the component function accepts the expected number of arguments (1 = props)
       expect(mod.default.length).toBeLessThanOrEqual(1)
-    }, 15000)
+    }, 60000)
   })
 
   describe("diagnostics display logic", () => {

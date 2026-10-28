@@ -2,7 +2,10 @@ import type { ExportFormat, MarkdownExportSource } from "./types"
 
 export function sanitizeFileName(name: string): string {
   return name
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
+    .replace(
+      /[<>:"/\\|?*\u0000-\u001f]/g, // eslint-disable-line no-control-regex -- sanitize control chars (0x00-0x1f) is intentional
+      " "
+    )
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120)
