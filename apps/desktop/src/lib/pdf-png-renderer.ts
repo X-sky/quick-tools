@@ -22,6 +22,36 @@ type SatoriNode =
       props: Record<string, unknown> & { children?: SatoriNode | SatoriNode[] }
     }
 
+// --- Normalize: satori 0.12 requires every <div> with multiple children to
+// explicitly set `display: flex` (or `display: none`).  Many intermediate divs
+// produced from markdown tokens (e.g. list container, code block) are passed
+// to satori without a display rule, so we recursively patch them here.
+function normalizeSatoriNode(node: SatoriNode): SatoriNode {
+  if (typeof node === "string") return node
+  if (!node || typeof node !== "object" || !node.type || !node.props) return node
+
+  const children = node.props.children
+  let nextChildren: SatoriNode | SatoriNode[] | undefined = children
+  if (Array.isArray(children)) {
+    nextChildren = children.map((c) => normalizeSatoriNode(c))
+  } else if (children && typeof children === "object") {
+    nextChildren = normalizeSatoriNode(children as SatoriNode)
+  }
+
+  let style = node.props.style
+  if (node.type === "div" && style && typeof style === "object") {
+    const hasDisplay = Object.prototype.hasOwnProperty.call(style, "display")
+    if (!hasDisplay) {
+      style = { display: "flex", flexDirection: "column", ...(style as Record<string, unknown>) }
+    }
+  }
+
+  return {
+    ...node,
+    props: { ...node.props, style, children: nextChildren }
+  }
+}
+
 const A4_WIDTH_PX = 794
 const A4_HEIGHT_PX = 1123
 const PAGE_PADDING = 40
@@ -356,7 +386,7 @@ function markdownToSatoriTree(
   }
   children.push(...contentNodes)
 
-  return {
+  return normalizeSatoriNode({
     type: "div",
     props: {
       style: {
@@ -372,7 +402,7 @@ function markdownToSatoriTree(
       },
       children
     }
-  }
+  })
 }
 
 function buildPageTree(
@@ -407,7 +437,7 @@ function buildPageTree(
     }
   })
 
-  return {
+  return normalizeSatoriNode({
     type: "div",
     props: {
       style: {
@@ -425,7 +455,7 @@ function buildPageTree(
       },
       children
     }
-  }
+  })
 }
 
 // --- Rendering functions ---

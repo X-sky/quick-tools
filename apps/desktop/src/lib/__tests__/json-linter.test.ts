@@ -36,7 +36,7 @@ describe("jsonLintSource", () => {
     const view = createMockView("{invalid}")
     const diagnostics = jsonLintSource(view)
     expect(diagnostics.length).toBe(1)
-    expect(diagnostics[0].severity).toBe("error")
+    expect(diagnostics[0]!.severity).toBe("error")
   })
 
   it("should have valid from/to positions within document bounds", () => {
@@ -44,9 +44,9 @@ describe("jsonLintSource", () => {
     const view = createMockView(text)
     const diagnostics = jsonLintSource(view)
     expect(diagnostics.length).toBe(1)
-    expect(diagnostics[0].from).toBeGreaterThanOrEqual(0)
-    expect(diagnostics[0].to).toBeGreaterThanOrEqual(diagnostics[0].from)
-    expect(diagnostics[0].to).toBeLessThanOrEqual(text.length)
+    expect(diagnostics[0]!.from).toBeGreaterThanOrEqual(0)
+    expect(diagnostics[0]!.to).toBeGreaterThanOrEqual(diagnostics[0]!.from)
+    expect(diagnostics[0]!.to).toBeLessThanOrEqual(text.length)
   })
 
   it("should handle trailing comma error", () => {
@@ -54,8 +54,8 @@ describe("jsonLintSource", () => {
     const view = createMockView(text)
     const diagnostics = jsonLintSource(view)
     expect(diagnostics.length).toBe(1)
-    expect(diagnostics[0].from).toBeGreaterThanOrEqual(0)
-    expect(diagnostics[0].to).toBeLessThanOrEqual(text.length)
+    expect(diagnostics[0]!.from).toBeGreaterThanOrEqual(0)
+    expect(diagnostics[0]!.to).toBeLessThanOrEqual(text.length)
   })
 
   it("should handle multiline JSON with error on later line", () => {
@@ -63,8 +63,8 @@ describe("jsonLintSource", () => {
     const view = createMockView(text)
     const diagnostics = jsonLintSource(view)
     expect(diagnostics.length).toBe(1)
-    expect(diagnostics[0].from).toBeGreaterThanOrEqual(0)
-    expect(diagnostics[0].to).toBeLessThanOrEqual(text.length)
+    expect(diagnostics[0]!.from).toBeGreaterThanOrEqual(0)
+    expect(diagnostics[0]!.to).toBeLessThanOrEqual(text.length)
   })
 
   it("should return valid JSON arrays without diagnostics", () => {
@@ -77,8 +77,8 @@ describe("jsonLintSource", () => {
     const view = createMockView("{bad}")
     const diagnostics = jsonLintSource(view)
     expect(diagnostics.length).toBe(1)
-    expect(diagnostics[0].message).toBeTruthy()
-    expect(typeof diagnostics[0].message).toBe("string")
+    expect(diagnostics[0]!.message).toBeTruthy()
+    expect(typeof diagnostics[0]!.message).toBe("string")
   })
 
   it("should satisfy 0 <= from <= to <= length for single character input", () => {
@@ -86,9 +86,9 @@ describe("jsonLintSource", () => {
     const view = createMockView(text)
     const diagnostics = jsonLintSource(view)
     expect(diagnostics.length).toBe(1)
-    expect(diagnostics[0].from).toBeGreaterThanOrEqual(0)
-    expect(diagnostics[0].from).toBeLessThanOrEqual(diagnostics[0].to)
-    expect(diagnostics[0].to).toBeLessThanOrEqual(text.length)
+    expect(diagnostics[0]!.from).toBeGreaterThanOrEqual(0)
+    expect(diagnostics[0]!.from).toBeLessThanOrEqual(diagnostics[0]!.to)
+    expect(diagnostics[0]!.to).toBeLessThanOrEqual(text.length)
   })
 
   it("should handle valid nested JSON", () => {

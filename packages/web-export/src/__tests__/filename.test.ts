@@ -8,7 +8,7 @@ import { sanitizeFileName } from "../filename"
  * Validates: Requirements 2.3
  */
 
-const FORBIDDEN_CHARS = /[<>:"/\\|?*\u0000-\u001f]/
+const FORBIDDEN_CHARS = /[<>:"/\\|?*\u0000-\u001f]/ // eslint-disable-line no-control-regex -- test fixture
 
 describe("Feature: monorepo-refactor, Property 2: Filename sanitization removes all forbidden characters", () => {
   it("result contains no forbidden characters for any input string", () => {

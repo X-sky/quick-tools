@@ -1,6 +1,15 @@
 import type { PlatformProvider } from "@quick-tools/platform"
 import { registerPlatform } from "@quick-tools/platform"
 
+declare global {
+  interface Window {
+    /** Tauri 2 internal bridge — present when running inside the Tauri shell. */
+    __TAURI_INTERNALS__?: {
+      invoke?: (...args: unknown[]) => unknown
+    }
+  }
+}
+
 import { browserPlatform } from "./browser"
 import { tauriClipboardAccess } from "./clipboard"
 import { tauriContentExtractor } from "./content-extractor"

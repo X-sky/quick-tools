@@ -18,7 +18,7 @@ export const tauriClipboardAccess: ClipboardAccess = {
 
   async writeImage(
     data: Uint8Array,
-    mimeType: string
+    _mimeType: string
   ): Promise<PlatformResult<void>> {
     try {
       const image = await Image.fromBytes(data)

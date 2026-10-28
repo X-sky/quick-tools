@@ -14,7 +14,7 @@ export const tauriFileDownloader: FileDownloader = {
   async download(
     data: Uint8Array | string,
     filename: string,
-    mimeType: string
+    _mimeType: string
   ): Promise<PlatformResult<void>> {
     try {
       const bytes = toUint8Array(data)
@@ -33,7 +33,7 @@ export const tauriFileDownloader: FileDownloader = {
   async downloadWithDialog(
     data: Uint8Array | string,
     suggestedName: string,
-    mimeType: string
+    _mimeType: string
   ): Promise<PlatformResult<void>> {
     try {
       const filePath = await save({
