@@ -20,4 +20,6 @@ tauri-build = { version = "2", features = [] }
 
 [lib]
 name = "quick_tools_desktop_lib"
-crate-type = ["lib", "cdylib", "staticlib"]
+# Desktop-only app: main.rs links the lib as an rlib. The cdylib/staticlib
+# outputs only exist for the mobile targets the Tauri template assumes.
+crate-type = ["rlib"]
