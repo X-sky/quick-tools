@@ -14,7 +14,7 @@ import {
   sanitizeFileName,
   type MarkdownExportSource
 } from "@quick-tools/web-export"
-import { parseBatchUrls } from "~/lib/batch-parser"
+import { parseBatchUrls } from "@quick-tools/web-export"
 
 import {
   installMockPlatform,

@@ -11,13 +11,13 @@
 | 包管理器 | **pnpm**（workspace） | `pnpm-workspace.yaml`、`pnpm-lock.yaml` |
 | Monorepo 编排 | **turbo 2** | `turbo.json` |
 | TypeScript | **5.3.3**（strict 全开 + `noUncheckedIndexedAccess`） | 根 `tsconfig.base.json` |
-| 测试 | **vitest** + **fast-check**（属性测试） | 根 `vitest.config.mts` + 各包 `vitest.config.*` |
+| 测试 | **vitest** + **fast-check**（属性测试） | 各 app / package 自己的 `vitest.config.*` |
 | Lint | **ESLint 8** + `@typescript-eslint` | `.eslintrc.base.js` |
 | Format | **Prettier 3.2.4** + `@ianvs/prettier-plugin-sort-imports` | `.prettierrc.mjs` |
 | 扩展构建 | **Plasmo 0.90.5** | `apps/extension/package.json` |
 | 桌面构建 | **Tauri 2** + **Vite 5** + `@vitejs/plugin-react` | `apps/desktop/src-tauri/Cargo.toml` + `vite.config.ts` |
 
-> **冲突点（待修）**：`.github/workflows/build.yml` 仍把 Node pin 在 `16.x`，与根 `package.json` 的 `volta.node=24.14.0` 不一致。改 PR 之前应先决定升 Node 还是降 Node。
+> **冲突点（待修）**：`.github/workflows/submit.yml` 仍把 Node pin 在 `16.x`，与根 `package.json` 的 `volta.node=24.14.0` 不一致。改 PR 之前应先决定升 Node 还是降 Node。
 
 ## 2. 仓库结构（工程视角）
 
@@ -30,25 +30,22 @@ quick-tools/
 ├── tailwind.preset.js              # 共享 Design Tokens
 ├── .prettierrc.mjs                 # 共享格式化 + import 排序
 ├── .eslintrc.base.js               # 共享 lint 规则
-├── vitest.config.mts               # 根测试入口：把 @quick-tools/* 直接 alias 到 src（无需先构建）
 │
-├── packages/                       # 4 个纯逻辑库（tsup → esm+cjs+dts）
+├── packages/                       # 5 个 workspace 库（tsup → esm+cjs+dts）
 │   ├── platform/                   # @quick-tools/platform — 平台抽象（无宿主依赖）
-│   ├── json-formatter/             # @quick-tools/json-formatter — parse/format/minify
-│   ├── qr-code-gen/                # @quick-tools/qr-code-gen — history + template 子模块
-│   └── web-export/                 # @quick-tools/web-export — 类型 + filename + markdown
+│   ├── json-formatter/             # @quick-tools/json-formatter — parse/format/sort/diff
+│   ├── qr-code-gen/                # @quick-tools/qr-code-gen — 容量、历史操作、template 子模块
+│   ├── web-export/                 # @quick-tools/web-export — 类型 + filename + markdown + 导出历史
+│   └── web-export-dom/             # @quick-tools/web-export-dom — Readability/渲染/分页/PDF/PNG（需 DOM）
 │
 ├── apps/
 │   ├── extension/                  # @quick-tools/extension — Plasmo Chrome 扩展（Manifest V3）
 │   └── desktop/                    # @quick-tools/desktop — Tauri 2 + Vite + React 桌面
 │
-├── tests/
-│   └── workspace-integrity.test.ts # vitest：验证 @quick-tools/* 在裸 Node 下也能被 import
-│
+├── main/                           # feat/new-feature 分支的本地 git worktree（不入库）
 ├── docs/REFACT_PLAN.md             # 单包 core 改造方案（**已部分否决**，见 AGENTS.md）
-├── assets/                         # 字体/图标（satori 字体加载源）
-├── .github/workflows/build.yml     # Plasmo BPP 发布工作流（manual trigger）
-├── .kiro/                          # 规格与 steering（项目内 AI 助手的私有配置，非本仓库对外契约）
+├── .github/workflows/submit.yml    # Plasmo BPP 发布工作流（manual trigger）
+├── .kiro/                          # 本机 AI 规格与 steering（已 gitignore，不入库）
 ├── todo.md                         # 进行中项
 └── .playwright-cli/                # 历史 playwright 抓屏产物（已被 .gitignore 忽略）
 ```
@@ -80,9 +77,9 @@ quick-tools/
 | 别名 | 指向 | 在哪生效 |
 |---|---|---|
 | `~*` | `src/*` | `apps/extension/tsconfig.json` + `apps/desktop/tsconfig.json` + `apps/desktop/vite.config.ts` |
-| `@quick-tools/*` | workspace 包 | `tsconfig.paths`（apps）+ **vitest alias 指向包源码**（根 `vitest.config.mts`） |
+| `@quick-tools/*` | workspace 包 | pnpm workspace（`node_modules` 软链 → 包的 `exports` → `dist/`） |
 
-> 根 `vitest.config.mts` 把 `@quick-tools/platform` 等直接 alias 到 `packages/*/src/index.ts`，**所以测试时不需要先 `pnpm build` 包**。但 `turbo.json` 的 `test` 配置了 `dependsOn: ["^build"]`，从根跑 `pnpm test` 时 turbo 会先 build 依赖。
+> apps 消费的是各包**构建产物** `packages/*/dist`。改了共享包必须先 `pnpm --filter @quick-tools/<pkg> build`（或直接 `pnpm build` 全量），否则 app 里还是旧代码、类型也可能对不上。`turbo.json` 的 `build` 配了 `dependsOn: ["^build"]`，用 `pnpm build` 会自动按依赖顺序构建。
 
 ## 5. 常用命令（可直接复制）
 
@@ -148,7 +145,7 @@ npx prettier --write .  # 项目无 `format` 脚本，直接调 prettier
 
 ## 7. CI / 发布
 
-- `.github/workflows/build.yml`：仅 `workflow_dispatch` 触发 → checkout → pnpm 缓存 → `pnpm build` → `pnpm package` → Plasmo BPP 上传 `build/chrome-mv3-prod.zip` 到 Chrome Web Store。
+- `.github/workflows/submit.yml`：仅 `workflow_dispatch` 触发 → checkout → pnpm 缓存 → `pnpm build` → `pnpm package` → Plasmo BPP 上传 `build/chrome-mv3-prod.zip` 到 Chrome Web Store（Node 仍 pin 16.x，见上）。
 - 触发后无法自动跑测试（**待补**：建议加入 `pnpm typecheck && pnpm test` 步骤）。
 - 桌面端**暂无打包/签名 CI**（**待确认**是否需要 `tauri-action`）。
 
@@ -158,10 +155,10 @@ npx prettier --write .  # 项目无 `format` 脚本，直接调 prettier
 |---|---|
 | `pnpm dev` 起不来 / 端口占用 | 扩展的 Plasmo watcher；桌面的 Vite 占用 1420（`strictPort: true`），如需换端口改 `apps/desktop/vite.config.ts` |
 | 改完 `tailwind.preset.js` 不生效 | Plasmo/Vite 的 Tailwind 处理是各自的 PostCSS；扩展看 `apps/extension/postcss.config.js`（无 autoprefixer 之外的配置），桌面看 `apps/desktop/postcss.config.cjs` |
-| vitest 找不到 `@quick-tools/*` | 根 `vitest.config.mts` alias 指向 `packages/*/src/index.ts`；在子包下跑用对应 `vitest.config.ts`（同样 alias 到自己的 `~`） |
+| vitest 找不到 `@quick-tools/*` | 先用 `pnpm build` 让各包产出 `dist/`；单包测试在包目录内跑（`pnpm --filter <pkg> test`），它解析的是自己的源码 |
 | 桌面页 Tauri API 调用 `undefined` | 没在 Tauri runtime 内（`window.__TAURI_INTERNALS__`），`initTauriPlatform` 会自动降级为 `browserPlatform`——多数桌面专属能力（如 `plugin-fs`）会失败 |
 | 扩展 Popup 样式丢 | Tailwind 类必须带 `plasmo-` 前缀（`apps/extension/tailwind.config.js` 的 `prefix`） |
-| 改完 `json-formatter` 包，扩展没拿到 | `turbo.json` 中 `build` 的 `outputs` 含 `dist/**`；`apps/extension` 通过 workspace 协议 `workspace:*` 引用——`pnpm build` 需重跑 |
+| 改完 `json-formatter` 包，扩展没拿到 | apps 消费 `dist/`，改包后要重新 `pnpm --filter @quick-tools/json-formatter build`（或 `pnpm build`） |
 
 ## 9. 未配置项（明确缺失）
 

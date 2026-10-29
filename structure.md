@@ -9,36 +9,35 @@ quick-tools/
 ├── apps/
 │   ├── extension/                 # @quick-tools/extension（Plasmo Chrome 扩展）
 │   └── desktop/                   # @quick-tools/desktop（Tauri 2 桌面）
-├── packages/                      # 4 个 workspace 库（tsup 产物，不含宿主 API）
+├── packages/                      # 5 个 workspace 库（tsup 产物，不含宿主 API）
 │   ├── platform/                  # @quick-tools/platform
 │   ├── json-formatter/            # @quick-tools/json-formatter
 │   ├── qr-code-gen/               # @quick-tools/qr-code-gen
-│   └── web-export/                # @quick-tools/web-export
-├── tests/
-│   └── workspace-integrity.test.ts
-├── assets/                        # satori 字体 + 仓库根 icon.png
+│   ├── web-export/                # @quick-tools/web-export（类型/纯工具）
+│   └── web-export-dom/            # @quick-tools/web-export-dom（DOM 渲染管线）
 ├── docs/REFACT_PLAN.md            # 旧方案（已部分否决）
-├── .github/workflows/build.yml    # Plasmo BPP 发布
-├── .kiro/                         # 内部 AI 助手规格/hook/steering
+├── .github/workflows/submit.yml   # 手动触发的扩展商店发布
+├── .kiro/                         # 本机 AI 规格/hook/steering（已 gitignore，不入库）
 ├── todo.md                        # 进行中项（人维护）
+├── main/                          # feat/new-feature 分支的 git worktree（本地，勿提交）
 ├── turbo.json / pnpm-workspace.yaml / pnpm-lock.yaml
 ├── tsconfig.base.json
 ├── tailwind.preset.js
 ├── .prettierrc.mjs / .eslintrc.base.js
-├── vitest.config.mts              # 根 vitest：alias 指向 packages/*/src
 └── AGENTS.md / product.md / tech.md / structure.md  # ← 本目录
 ```
 
 ## 2. 共享库（`packages/*`）
 
-四个包都用 tsup 配置（`tsup.config.ts` 完全相同）：`entry: src/index.ts`，`format: ["esm", "cjs"]`，`dts: true`，`clean: true`，`sourcemap: true`。
+五个包都用 tsup 配置（`tsup.config.ts` 完全相同）：`entry: src/index.ts`，`format: ["esm", "cjs"]`，`dts: true`，`clean: true`，`sourcemap: true`。
 
 | 包 | 入口 | 主要模块 | 关键约束 |
 |---|---|---|---|
 | `packages/platform` | `src/index.ts` | `types.ts` `interfaces.ts` `registry.ts` `errors.ts` | **零宿主依赖**；`registerPlatform(provider)` / `getPlatform()` 全局单例；统一返回 `PlatformResult<T> = { ok, value \| error }` |
-| `packages/json-formatter` | `src/index.ts` | `parse.ts` `format.ts` `types.ts` | `parseJsonOrJsObject` 用纯字符串替换（不用 `eval/Function`），注释/单引号/无引号键/尾逗号 |
-| `packages/qr-code-gen` | `src/index.ts` | `history.ts` `validation.ts` `types.ts` + `template/` 子模块 | 历史最大 50 条去重；模板语法 `{{ }}` 转义在 `template/parser.ts` |
-| `packages/web-export` | `src/index.ts` | `types.ts` `filename.ts` `markdown.ts` + `__tests__/` | 仅导出类型/工具；**不导出**渲染管线（`@resvg-wasm`、`jspdf` 等重依赖在 extension 内） |
+| `packages/json-formatter` | `src/index.ts` | `parse.ts` `format.ts` `sort.ts` `diff.ts` `types.ts` | `parseJsonOrJsObject` 用纯字符串替换（不用 `eval/Function`）；`diffLines()` 是 LCS 行级 diff，两端共用 |
+| `packages/qr-code-gen` | `src/index.ts` | `history.ts` `history-ops.ts` `capacity.ts` `validation.ts` `types.ts` + `template/`（含 `authoring.ts`） | 历史最大 50 条去重、标签合并；容量上限按 UTF-8 字节；模板语法 `{{ }}` 转义在 `template/parser.ts` |
+| `packages/web-export` | `src/index.ts` | `types.ts` `filename.ts` `markdown.ts` `history.ts` | 只放**平台无关**的类型与纯函数（文件名、Markdown 组装、导出历史、批量 URL 解析）；渲染依赖不放这里 |
+| `packages/web-export-dom` | `src/index.ts` | `extract.ts` `render-document.ts` `paginate.ts` `capture.ts` `pdf.ts` `theme.ts` `export.ts` `constants.ts` | 需要真实 DOM：Readability 提取、marked 渲染、分页、`html-to-image` 截图、PDF 拼装、PNG 合并；`exportArticle()` 是两端统一入口 |
 
 `packages/platform/src/interfaces.ts` 的契约（**所有宿主能力都从这里走**）：
 
@@ -63,25 +62,24 @@ apps/extension/
 ├── postcss.config.js
 ├── tsconfig.json               # extends plasmo base + paths "~" -> ./src
 ├── vitest.config.ts
+├── assets/                     # icon.png + 渲染用字体/wasm（构建内联）
 └── src/
-    ├── popup.tsx               # 弹窗：Quick Tools 标题 + 打开独立 tab 按钮 + QrCodeGen
+    ├── popup.tsx               # 弹窗：Quick Tools 标题 + 「网页导出」「JSON Formatter」入口 + QrCodeGen
     ├── background.ts           # Service Worker：contextMenus 初始化 + 消息路由 + 状态写 chrome.storage.local
     ├── style.css               # Tailwind 入口
     ├── assets.d.ts
     ├── icons/                  # SVG icon 组件（~icons 路径别名）
-    ├── components/index.ts     # 公共 barrel
     ├── platform/               # 平台适配：initChromePlatform()
     │   ├── index.ts
     │   ├── clipboard.ts
     │   ├── content-extractor.ts
     │   ├── downloads.ts
     │   ├── http.ts
-    │   └── storage.ts
-    ├── tabs/                   # 独立 tab 页
-    │   ├── json-formatter.html # （**待确认**：当前目录只见 json-formatter.tsx 和 export-renderer.tsx，html 需 plasmo 生成或被忽略）
+    │   ├── storage.ts
+    │   └── result.ts           # 非 strict 下的 PlatformResult 收窄辅助
+    ├── tabs/                   # 独立 tab 页（html 由 plasmo 生成到 build/）
     │   ├── json-formatter.tsx
-    │   ├── export-renderer.tsx
-    │   └── export-renderer.html（同上待确认）
+    │   └── web-export.tsx
     ├── features/               # 三个领域 UI
     │   ├── json-formatter/
     │   │   ├── index.tsx                       # JsonFormatter（CodeMirror 编辑器）
@@ -90,28 +88,17 @@ apps/extension/
     │   │       └── JsonComparator.tsx          # 双栏 diff（行级）
     │   ├── qr-code-gen/
     │   │   ├── index.tsx                       # 顶层 QrCodeGen（QrCodeProvider + TemplateProvider）
-    │   │   ├── context.tsx                     # QrCodeProvider 状态
+    │   │   ├── context.tsx                     # QrCodeProvider：text / history / tags / 尺寸 / 纠错等级
+    │   │   ├── qr-image.ts                     # SVG → PNG、保存/复制二维码图片
     │   │   ├── types.ts
     │   │   ├── utils.ts
-    │   │   ├── components/                     # HistoryList / InputSection / ModeSwitch / QrDisplay
-    │   │   └── template/                       # 模板子模块（含 components/ + __tests__/）
+    │   │   ├── components/                     # HistoryList / InputSection / ModeSwitch / QrDisplay / QrExportBar
+    │   │   └── template/                       # 模板子模块（parser / renderer / storage / import-export / components / __tests__）
     │   └── web-export/
-    │       ├── background.ts 中负责协调
-    │       ├── constants.ts                    # EXPORT_STATUS_KEY / EXPORT_TASK_KEY_PREFIX / MENU_IDS
-    │       ├── types.ts                        # BackgroundMessage 等（从 @quick-tools/web-export re-type）
-    │       ├── utils.ts                        # toDataUrl / createStatus / getTaskStorageKey
-    │       ├── extract-page.ts                 # Readability 注入页内执行
-    │       ├── image-export.ts                 # PNG 单图/分页
-    │       ├── pdf-export.ts                   # PDF 拼装
-    │       ├── pagination.ts                   # PNG/PDF 分页决策
-    │       ├── render-constants.ts             # CONTENT_WIDTH 等
-    │       ├── render-assets.ts                # 字体加载
-    │       ├── markdown-render.ts              # Markdown → HTML（satori）
-    │       ├── markdown-theme.css
-    │       ├── extension-runtime.ts            # chrome.runtime.id / "context invalidated" 检测
-    │       ├── use-export-renderer.ts          # 渲染管线 hook
-    │       ├── export-renderer-tab.tsx         # 渲染 tab 的 UI
-    │       └── popup-status.tsx                # 弹窗内状态卡片
+    │       ├── WebExportApp.tsx                # 导出页 UI：单个/批量、预览、历史、超限提示
+    │       ├── MarkdownPreview.tsx             # 渲染/源码两种预览
+    │       ├── extension-io.ts                 # 提取当前 tab / 抓 URL、chrome.downloads 保存
+    │       └── constants.ts                    # MENU_IDS
     └── __tests__/manifest.test.ts              # 校验 package.json manifest
 ```
 
@@ -120,11 +107,11 @@ apps/extension/
 | 文件 | 职责 |
 |---|---|
 | `apps/extension/src/popup.tsx` | 弹窗入口，组合 `QrCodeGen` |
-| `apps/extension/src/background.ts` | 初始化右键菜单；`contextMenus.onClicked` → `extractArticle(tabId)` → 渲染任务入 `chrome.storage.local` → 打开新 tab 跑 `export-renderer.html?taskId=...`；监听 `runtime.onMessage` 处理 `get-render-job` / `render-job-{progress,complete,error}` |
+| `apps/extension/src/background.ts` | 只在 install/startup 重建右键菜单（串行，避免 `removeAll`/`create` 交错导致菜单项丢失）；`contextMenus.onClicked` → 打开 `tabs/web-export.html?tabId=…&format=…&auto=1`，由页面自己提取、导出、下载后自动关闭 |
 | `apps/extension/src/platform/index.ts` | 组装并 `registerPlatform(chromePlatform)`，必须在任何 platform 调用之前执行（`background.ts` 顶部即调用） |
-| `apps/extension/src/features/web-export/extract-page.ts` | `extractArticleInPage()`，被 `chrome.scripting.executeScript` 注入到当前 tab 内执行，返回 `MarkdownExportSource` |
-| `apps/extension/src/features/web-export/use-export-renderer.ts` | 渲染管线 hook：拉 job → 分页决策 → satori + resvg → 拼 PDF / PNG → 下载 → 通过 `chrome.runtime.sendMessage` 上报进度/结果 |
-| `apps/extension/src/features/web-export/constants.ts` | `MENU_IDS = { parent, markdown, pdf, png } as const`；**`MENU_IDS.parent = "web-export:root"`** 即 todo.md 报告的潜在重复 ID 来源 |
+| `apps/extension/src/features/web-export/extension-io.ts` | `extractFromTab()` 用 `chrome.scripting.executeScript` 取渲染后 DOM → 共享包 `extractFromHtml()`；`extractFromUrl()` 直接 fetch；`saveFiles()` 走 `chrome.downloads` |
+| `apps/extension/src/features/web-export/WebExportApp.tsx` | 导出页主逻辑：`exportArticle()`（共享包）产出文件 → 保存 → 历史入库；超限时提示分页/改 PDF |
+| `apps/extension/src/features/web-export/constants.ts` | `MENU_IDS = { parent, markdown, pdf, png } as const`（`parent = "web-export:root"`） |
 | `apps/extension/src/features/qr-code-gen/context.tsx` | `QrCodeProvider` 全局状态：text / history / tags / 编辑项 |
 | `apps/extension/src/features/qr-code-gen/template/` | 模板模式子模块（`parser` / `renderer` / `storage` / `import-export` / `components` / `__tests__`） |
 
@@ -159,23 +146,30 @@ apps/desktop/
 │   │   ├── overlay/             # CommandPalette, NotificationToast, ContextDrawer
 │   │   ├── shared/              # AriaLiveRegion, FocusRing, SkeletonLoader, Tooltip, IconButton
 │   │   ├── template/            # 模板相关组件
-│   │   ├── HistoryPanel.tsx / BatchUrlPanel.tsx
+│   │   ├── HistoryPanel.tsx     # 通用历史侧栏（导出历史；按条目删除）
+│   │   ├── QrHistoryPanel.tsx   # QR 历史侧栏（标签、搜索、复制、导入导出）
+│   │   ├── BatchUrlPanel.tsx    # 批量 URL 输入 + 进度
 │   │   ├── CodeMirrorEditor.tsx / DiffViewer.tsx / ResizableSplitPane.tsx
-│   │   ├── MarkdownPreview.tsx / QrRenderer.tsx / Toast.tsx
-│   ├── hooks/                   # useDebounce, useHistory, useTemplateStore, useCommandPalette, useTheme, useToast(Stack), useWindowState, useReducedMotion, usePageTransition
-│   ├── lib/                     # 纯函数：fuzzy-search, qr-capacity, json-linter, batch-parser, path-truncate, turndown-config, template-io, design-tokens
+│   │   └── MarkdownPreview.tsx / QrRenderer.tsx / Toast.tsx
+│   ├── hooks/                   # useDebounce, useQrHistory, useExportHistory, useJsonFilePicker, useTemplateStore, useCommandPalette, useTheme, useToast(Stack), useWindowState, useReducedMotion, usePageTransition
+│   ├── lib/                     # 纯函数/薄封装：fuzzy-search, json-linter, json-diff, path-truncate, pdf-png-renderer, web-export-io, qr-capacity, turndown-config
 │   ├── platform/                # 桌面端平台适配
 │   │   ├── index.ts             # initTauriPlatform()：Tauri 环境下注册 tauriPlatform，否则降级 browserPlatform
 │   │   ├── file-system.ts       # @tauri-apps/plugin-fs / plugin-dialog
 │   │   ├── clipboard.ts / http.ts / storage.ts
 │   │   ├── content-extractor.ts # Readability + Turndown
 │   │   ├── file-opener.ts / browser.ts
-│   ├── types/                   # page-shell.ts, history-props.ts
-│   └── tokens/                  # （空或近空，**待确认**）
+│   ├── types/                   # page-shell.ts
+│   ├── tokens/                  # colors/motion/radii/shadows/spacing/typography.css
+│   ├── test-utils/              # mock-platform、jsdom polyfill、render 辅助
+│   └── __tests__/e2e/           # 页面级 e2e（mock platform）
 └── src-tauri/                   # Rust 端
-    ├── Cargo.toml               # tauri 2 + tauri-plugin-opener
-    ├── tauri.conf.json          # productName=Quick Tools, identifier=com.quick-tools.desktop, 1024x768, bundle.all
-    └── src/main.rs              # tauri::Builder + tauri_plugin_opener
+    ├── Cargo.toml               # tauri 2（features: image-png）+ 6 个插件
+    ├── build.rs                 # tauri_build::build()
+    ├── tauri.conf.json          # devUrl 1420 / beforeDevCommand / bundle icons
+    ├── capabilities/default.json# dialog/fs/store/http/clipboard 权限与 scope
+    ├── icons/                   # tauri icon 生成（勿手改）
+    └── src/main.rs + src/lib.rs # lib 里注册插件，main 只调 run()
 ```
 
 ### 4.2 关键文件 → 职责
@@ -188,13 +182,15 @@ apps/desktop/
 | `apps/desktop/src/components/shell/NavigationRail.tsx` | 左侧导航；roving tabindex 模式；900–1024px 视口抑制 auto tooltip |
 | `apps/desktop/src/components/shell/PageContainer.tsx` | 用 `motion/react` 做页面切换动画，遵守 `prefers-reduced-motion` |
 | `apps/desktop/src/components/overlay/CommandPalette.tsx` | ⌘K / Ctrl+K 命令面板；接入 `useCommandPalette` |
-| `apps/desktop/src/lib/turndown-config.ts` | 桌面端 Readability→Markdown 的 turndown 配置（带 GFM） |
+| `apps/desktop/src/lib/pdf-png-renderer.ts` | satori 版 PDF/PNG 渲染（仅被 e2e 测试与历史代码使用；页面已改用 `@quick-tools/web-export-dom`） |
+| `apps/desktop/src/lib/web-export-io.ts` | Tauri 下的图片抓取（plugin-http）、单文件保存对话框、多文件写目录 |
 
 ### 4.3 Tauri 配置
 
-- `tauri.conf.json` `app.windows`：1024×768（min 800×600）
-- `bundle.targets: "all"`，`bundle.active: true`
-- 插件：`tauri-plugin-opener`（`src/main.rs`）；前端通过 `@tauri-apps/plugin-{fs,dialog,store,clipboard-manager,http}` 调系统能力
+- `tauri.conf.json`：窗口 1024×768（min 900×640）、`devUrl=http://localhost:1420`、`beforeDevCommand=pnpm dev`、`bundle.targets: "all"` + `bundle.icon`
+- 插件（`src/lib.rs` 注册）：opener / dialog / fs / http / store / clipboard-manager
+- **http scope 必须带端口通配**：`http://*:*/**`、`https://*:*/**`；`http://*/*` 匹配不到带端口的 URL，会报 `url not allowed on the configured scope`
+- **剪贴板写图片依赖 `tauri` 的 `image-png` 特性**（`Image.fromBytes` 需要它解码 PNG），Cargo.toml 已开启
 
 ## 5. 跨形态复用关系
 
@@ -202,12 +198,13 @@ apps/desktop/
                      ┌────────────────────────┐
                      │  @quick-tools/platform │  ← 接口 + 错误模型 + registerPlatform
                      └────────────┬───────────┘
-                                  │ 全部 4 个包依赖
-        ┌──────────┬──────────────┼──────────────┬──────────┐
-        │          │              │              │          │
-  json-formatter  qr-code-gen   web-export      (extension/desktop 用)
-        │          │              │
-        └──────────┴──────┬───────┘
+                                  │ 全部 5 个包依赖
+        ┌──────────┬──────────────┼──────────────┬──────────────┐
+        │          │              │              │              │
+  json-formatter  qr-code-gen   web-export   web-export-dom      │
+        │          │              │              │               │
+        └──────────┴──────┬───────┴──────────────┘               │
+                          │                                        │
                           │
         ┌─────────────────┴─────────────────┐
         │                                   │
@@ -249,7 +246,7 @@ apps/desktop/
 - 异步 API 包 try/catch；`error instanceof Error` 后取 `.message`
 - 内部用 `PlatformResult<T>`；UI 弹出的最终用户消息**中文**
 - 静默初始化用 `void setupContextMenus().catch(console.error)` 或 `void xxx().catch(console.error)`
-- chrome.runtime 失效检测：`extension-runtime.ts` 提供 `isExtensionContextInvalid` / `hasRuntimeContext`
+- 扩展端在非 strict 编译下 `result.ok` 不窄化，取错误统一用 `~platform/result` 的 `getResultError()` / `getVisibleError()`
 
 ### 6.4 Tailwind
 
@@ -270,8 +267,8 @@ apps/desktop/
 - 文件命名：
   - `*.test.ts(x)` — 单元/集成
   - `*.property.test.ts` — fast-check 属性测试（**至少 parser、renderer、merge 用属性测**）
-- 跑测：通过根 `vitest.config.mts`（alias 指向 `packages/*/src`）；turbo 模式下 `pnpm test` 会先 `^build`
-- 集成：根 `tests/workspace-integrity.test.ts` 验证 `@quick-tools/*` 可在 Node 环境直接 import
+- 跑测：`pnpm test` = `pnpm -r test`，每个 app/package 用自己的 `vitest.config`，各自解析 workspace 包（走 `dist/`，改包后先 build）
+- 桌面端另有 `apps/desktop/src/__tests__/e2e/`：基于 `test-utils/mock-platform` 的页面级用例，可选 jsdom 环境
 
 ## 8. "我想做 X，应该改哪里" 速查
 
@@ -280,7 +277,7 @@ apps/desktop/
 | 加新的 JSON 操作（如 sort / 去重 / JSONPath） | `packages/json-formatter/src/`，在 `index.ts` barrel 导出 → `apps/extension/src/features/json-formatter/index.tsx` 与 `apps/desktop/src/pages/JsonFormatterPage.tsx` 加按钮 |
 | QR 新能力（颜色、Logo、SVG 导出） | `apps/extension/src/features/qr-code-gen/` 与 `apps/desktop/src/pages/QrCodeGenPage.tsx`（`qrcode.react` 已支持大部分） |
 | QR 模板语法扩展 | `packages/qr-code-gen/src/template/parser.ts`（**parser 与 pretty-printer 必须同步修改**，并补 `__tests__/parser-roundtrip.property.test.ts`） |
-| 导出新格式（如 HTML、DOCX） | `packages/web-export/src/` 加工具 → `apps/extension/src/features/web-export/` 加渲染管线 → `apps/extension/src/background.ts` 的 `exportCurrentPage` 路由 → 桌面端 `WebExportPage.tsx` |
+| 导出新格式（如 HTML、DOCX） | 纯逻辑放 `packages/web-export/`；需要 DOM 的放 `packages/web-export-dom/` 并在 `exportArticle()` 里加分支 → 两端页面自动复用 |
 | 新宿主能力（如分享、通知） | `packages/platform/src/interfaces.ts` 加接口 → 两个 app 的 `platform/` 实现 → `getPlatform().xxx()` 调用 |
 | 加新页面 | 桌面：`apps/desktop/src/pages/<Name>Page.tsx` + `apps/desktop/src/components/shell/NavigationRail.tsx` 的 `navItems` + `App.tsx` 的 `PAGE_LABELS` 映射 + `PageContainer` 子节点 |
 | 改设计 token | 仓库根 `tailwind.preset.js` |

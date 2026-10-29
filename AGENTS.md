@@ -23,7 +23,7 @@ pnpm dev                      # turbo dev（并行跑各包 watch + 两个 app�
 pnpm dev:extension            # 只跑 Chrome 扩展（plasmo dev）
 pnpm dev:desktop              # 只跑桌面端 vite dev（端口 1420，对接 tauri）
 pnpm dev:tauri                # 桌面端走 tauri dev（需要 Rust 工具链）
-pnpm test                     # vitest 全量（root vitest.config.mts 别名指向各包 src）
+pnpm test                     # 各 app / package 的 vitest 全量（消费已构建的 dist，改包先 build）
 pnpm typecheck                # tsc --noEmit 全量
 pnpm lint                     # eslint 全量
 ```
