@@ -59,7 +59,7 @@ describe("StatusStrip", () => {
 
     it("should truncate long paths for display", async () => {
       const { truncatePath } = await import("../../../lib/path-truncate")
-      const longPath = "/Users/xietian/Documents/projects/quick-tools/src/lib/path-truncate.ts"
+      const longPath = "/Users/example/Documents/projects/quick-tools/src/lib/path-truncate.ts"
       const result = truncatePath(longPath, 60)
       // Should be shorter or equal to 60 chars
       expect(result.length).toBeLessThanOrEqual(longPath.length)

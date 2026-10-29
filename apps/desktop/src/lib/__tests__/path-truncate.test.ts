@@ -22,7 +22,7 @@ describe("truncatePath", () => {
   })
 
   it("should truncate middle segments for paths with more than 3 segments", () => {
-    const path = "/Users/xietian/Documents/projects/quick-tools/src/lib/path-truncate.ts"
+    const path = "/Users/example/Documents/projects/quick-tools/src/lib/path-truncate.ts"
     const result = truncatePath(path, 30)
     expect(result).toBe("/Users/…/path-truncate.ts")
   })
@@ -36,7 +36,7 @@ describe("truncatePath", () => {
   })
 
   it("should handle Windows-style paths with backslashes", () => {
-    const path = "C:\\Users\\xietian\\Documents\\project\\src\\main.ts"
+    const path = "C:\\Users\\example\\Documents\\project\\src\\main.ts"
     const result = truncatePath(path, 20)
     // "C:" is the first segment when split by backslash, no leading separator
     expect(result).toBe("C:\\…\\main.ts")
