@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-import { parseBatchUrls } from "~/lib/batch-parser"
+import { parseBatchUrls } from "@quick-tools/web-export"
 
 export type ExportFormat = "markdown" | "pdf" | "png"
 

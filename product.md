@@ -24,7 +24,7 @@
 
 ## 3. 核心能力清单
 
-> 标注规则：**已交付** = 代码已实现且在 `apps/*` 中挂载；**规划中** = 在 `.kiro/specs/*` 或 `todo.md` 出现但**未在代码中实现**，不应假定存在。
+> 标注规则：**已交付** = 代码已实现且在 `apps/*` 中挂载；**规划中** = 在本机 `.kiro/specs/*`（不入库）或 `todo.md` 中出现但**未在代码中实现**，不应假定存在。
 
 ### 3.1 JSON 格式化（**已交付**）
 
@@ -78,7 +78,7 @@
 
 | 形态 | 谁来部署 | 如何访问 |
 |---|---|---|
-| Chrome 扩展 | 仓库维护者（通过 `.github/workflows/build.yml` 在打 tag 或手动触发时 `bpp` 发布到 Chrome Web Store） | 用户在 Chrome Web Store 安装；开发者在 `chrome://extensions/` 加载 `apps/extension/build/chrome-mv3-dev` |
+| Chrome 扩展 | 仓库维护者（通过 `.github/workflows/submit.yml` 手动触发，`bpp` 发布到 Chrome Web Store） | 用户在 Chrome Web Store 安装；开发者在 `chrome://extensions/` 加载 `apps/extension/build/chrome-mv3-dev` |
 | 桌面应用 | 仓库维护者（需 Rust 工具链 + Tauri 2 CLI，`pnpm dev:tauri` 本地开发） | 用户下载平台对应安装包（macOS / Windows / Linux）。`tauri.conf.json` `bundle.targets: "all"` —— 实际打包命令与签名流程**待确认** |
 | npm 包（4 个 `@quick-tools/*`） | 当前仅作为 workspace 内部依赖使用 | 暂未发布到 npm（`packages/*/package.json` 缺 `publishConfig`，未配置 registry，**待确认**） |
 

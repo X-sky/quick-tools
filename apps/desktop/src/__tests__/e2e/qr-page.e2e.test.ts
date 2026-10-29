@@ -41,7 +41,7 @@ describe("QR Code page — logic E2E", () => {
     })
   })
 
-  describe("history (useHistory hook → storage)", () => {
+  describe("history (storage)", () => {
     it("persists up to 50 items and drops the oldest", async () => {
       const key = "qr-history"
       const p = getPlatform()
